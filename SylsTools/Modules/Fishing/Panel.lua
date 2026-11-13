@@ -203,15 +203,21 @@ function Panel:RefreshStatus()
 
     local key = F.cdb.key
     local active = F.OneButton:IsActive()
+    local text
     if not key then
-        self.keyStatus:SetText("Pick a key to cast and reel with the same button.")
+        text = "Pick a key to cast and reel with the same button. It only takes over that key while a fishing pole is equipped."
     elseif active then
-        self.keyStatus:SetText(string.format(
-            "|cff55ff55Active|r - press |cffffd100%s|r to cast, and again when the bobber splashes.", key))
+        text = string.format("|cff55ff55Active|r - press |cffffd100%s|r to cast, and again when the bobber splashes.", key)
     else
-        self.keyStatus:SetText(string.format(
-            "|cff888888Inactive|r - equip a fishing pole to turn on. %s keeps its normal binding until then.", key))
+        text = string.format("|cff888888Inactive|r - equip a fishing pole to turn on. %s keeps its normal binding until then.", key)
     end
+    local gameKeys = F.OneButton:GameKeys()
+    if #gameKeys > 0 then
+        text = text .. string.format("\nGame key binding: |cffffd100%s|r", table.concat(gameKeys, ", "))
+    else
+        text = text .. "\n|cff888888You can also bind it in Options > Keybindings > AddOns > Syl's Tools.|r"
+    end
+    self.keyStatus:SetText(text)
 end
 
 function Panel:Refresh()
@@ -247,7 +253,7 @@ function Panel:Refresh()
 end
 
 for _, event in ipairs({ "ST_GEAR_CHANGED", "ST_MODE_CHANGED", "ST_CATCH", "ST_FISHING_START",
-                         "ST_FISHING_STOP", "ST_SETTINGS_CHANGED", "PLAYER_REGEN_DISABLED",
+                         "ST_FISHING_STOP", "ST_SETTINGS_CHANGED", "PLAYER_REGEN_DISABLED", "UPDATE_BINDINGS",
                          "PLAYER_REGEN_ENABLED", "BAG_UPDATE_DELAYED" }) do
     ST:On(event, function()
         if Panel.page and Panel.page:IsShown() then Panel:Refresh() end

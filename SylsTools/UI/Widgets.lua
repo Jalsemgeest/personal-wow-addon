@@ -162,3 +162,108 @@ function W.KeyBind(parent, width, get, set)
     label()
     return b
 end
+
+---------------------------------------------------------------------------
+-- Scrollable list of rows. Rows are plain tables:
+--   { kind = "header", text = "..." }
+--   { kind = "item", icon = tex, title = "...", body = "...", dim = bool,
+--     spellID = id (tooltip), tooltip = "..." }
+--   { kind = "text", text = "..." }   -- wrapped paragraph
+---------------------------------------------------------------------------
+function W.ScrollList(parent, width)
+    local scroll = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(width, 10)
+    scroll:SetScrollChild(child)
+    scroll.child, scroll.width, scroll.pool = child, width, {}
+
+    local function rowFrame(i)
+        local r = scroll.pool[i]
+        if r then return r end
+        r = CreateFrame("Button", nil, child)
+        r.icon = r:CreateTexture(nil, "ARTWORK")
+        r.icon:SetSize(26, 26)
+        r.icon:SetPoint("TOPLEFT", 2, -3)
+        r.title = r:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        r.title:SetJustifyH("LEFT")
+        r.body = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        r.body:SetJustifyH("LEFT")
+        r.body:SetJustifyV("TOP")
+        r.body:SetSpacing(2)
+        r:SetScript("OnEnter", function(self)
+            local d = self.data
+            if not d or not (d.spellID or d.tooltip) then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            if d.spellID and GameTooltip.SetSpellByID then
+                GameTooltip:SetSpellByID(d.spellID)
+            else
+                GameTooltip:SetText(d.title or "", 1, 1, 1)
+            end
+            if d.tooltip then GameTooltip:AddLine(d.tooltip, nil, nil, nil, true) end
+            GameTooltip:Show()
+        end)
+        r:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        scroll.pool[i] = r
+        return r
+    end
+
+    local function textHeight(fs, fallbackLines)
+        local h = fs.GetStringHeight and fs:GetStringHeight()
+        if type(h) ~= "number" or h <= 0 then h = 13 * (fallbackLines or 1) end
+        return h
+    end
+
+    function scroll:SetRows(rows)
+        self.rows = rows
+        local y = 0
+        for i, d in ipairs(rows) do
+            local r = rowFrame(i)
+            r.data = d
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", child, "TOPLEFT", 0, -y)
+            r:SetWidth(width)
+            r.title:ClearAllPoints()
+            r.body:ClearAllPoints()
+            local h
+            if d.kind == "header" then
+                r.icon:Hide()
+                r.body:Hide()
+                r.title:SetFontObject("GameFontNormalLarge")
+                r.title:SetPoint("TOPLEFT", 0, -8)
+                r.title:SetWidth(width)
+                r.title:SetText(d.text)
+                r.title:Show()
+                h = 30
+            elseif d.kind == "text" then
+                r.icon:Hide()
+                r.title:Hide()
+                r.body:SetPoint("TOPLEFT", 2, -2)
+                r.body:SetWidth(width - 4)
+                r.body:SetText(d.text)
+                r.body:Show()
+                h = textHeight(r.body, 2) + 8
+            else
+                r.icon:SetTexture(d.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+                r.icon:SetDesaturated(d.dim and true or false)
+                r.icon:SetAlpha(d.dim and 0.6 or 1)
+                r.icon:Show()
+                r.title:SetFontObject(d.dim and "GameFontDisable" or "GameFontNormal")
+                r.title:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 8, 0)
+                r.title:SetWidth(width - 40)
+                r.title:SetText(d.title or "")
+                r.title:Show()
+                r.body:SetPoint("TOPLEFT", r.title, "BOTTOMLEFT", 0, -2)
+                r.body:SetWidth(width - 40)
+                r.body:SetText(d.body or "")
+                r.body:SetShown(d.body ~= nil and d.body ~= "")
+                h = math.max(32, 3 + textHeight(r.title) + (d.body and (textHeight(r.body, 2) + 4) or 0) + 6)
+            end
+            r:SetHeight(h)
+            r:Show()
+            y = y + h
+        end
+        for i = #rows + 1, #self.pool do self.pool[i]:Hide() end
+        child:SetHeight(math.max(y, 10))
+    end
+    return scroll
+end

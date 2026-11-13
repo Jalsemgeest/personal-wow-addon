@@ -12,7 +12,7 @@ _G.SylsTools = ST -- exposed for /run debugging
 
 ST.name = ADDON_NAME or "SylsTools"
 ST.title = "Syl's Tools"
-ST.version = "0.2.0"
+ST.version = "0.3.0"
 
 local function deepDefaults(dst, src)
     for k, v in pairs(src) do
@@ -51,7 +51,8 @@ function ST:On(event, fn)
     if not handlers[event] then
         handlers[event] = {}
         if not event:find("^ST_") then
-            eventFrame:RegisterEvent(event)
+            -- Unknown events throw on modern clients; skip ones this client lacks.
+            pcall(eventFrame.RegisterEvent, eventFrame, event)
         end
     end
     table.insert(handlers[event], fn)
@@ -112,6 +113,11 @@ function API.GetSpellName(spellID)
     elseif GetSpellInfo then
         return (GetSpellInfo(spellID))
     end
+end
+
+function API.GetSpellIcon(spellID)
+    if C_Spell and C_Spell.GetSpellTexture then return C_Spell.GetSpellTexture(spellID) end
+    if GetSpellTexture then return GetSpellTexture(spellID) end
 end
 
 function API.GetContainerNumSlots(bag)
@@ -266,6 +272,10 @@ SLASH_SYLSTOOLS1 = "/syl"
 SLASH_SYLSTOOLS2 = "/sylstools"
 SlashCmdList = SlashCmdList or {}
 SlashCmdList.SYLSTOOLS = function(msg) ST:HandleSlash(msg) end
+
+-- Game Menu > Key Bindings labels (entries live in Bindings.xml).
+BINDING_HEADER_SYLSTOOLS = "Syl's Tools"
+_G["BINDING_NAME_CLICK SylsToolsFishingCastButton:LeftButton"] = "Fishing: Cast / Reel"
 
 -- Minimap "addon compartment" entry (modern client).
 function SylsTools_OnAddonCompartmentClick() ST:Toggle() end

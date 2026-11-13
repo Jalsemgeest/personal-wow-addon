@@ -5,7 +5,15 @@ Forever**, built to be safe to distribute under Blizzard's rules. Each tool is
 a self-contained *module* with its own page in the Syl's Tools window.
 **Fishing** is the first module.
 
-Status: **v0.2 (pre-alpha, not yet tested in-game)**
+Status: **v0.3 (pre-alpha, not yet tested in-game)**
+
+Modules:
+
+| Module | What it does | Spec |
+|---|---|---|
+| **Fishing** | Bobber HUD, one-key cast & reel, weapon swap with auto re-equip, catch tracking | §4 |
+| **Upcoming Spells** | "What do I get next level?" in a spellbook tab and in the window | §8 |
+| **Class Guides** | Beginner guides per role that adapt to the abilities you have | §9 |
 
 ## 0. Suite structure
 
@@ -175,6 +183,12 @@ page should say so plainly.
     `type=spell, spell=<Fishing>` (one press, one cast);
   - **channeling Fishing:** it is bound to `INTERACTTARGET` (one press, one
     interaction with the soft-targeted bobber).
+- **Game Key Bindings entry.** `Bindings.xml` adds *Options > Keybindings >
+  AddOns > Syl's Tools > Fishing: Cast / Reel*, which clicks the same secure
+  cast button. A key bound there casts as a normal binding, and while a Fishing
+  channel is active it is temporarily overridden to `INTERACTTARGET` so the same
+  key reels in. Unlike the Syl's Tools key, it is bound at all times, which suits
+  players who prefer a dedicated key.
 - Bindings can only change out of combat. If combat starts, the overrides are
   cleared, and they are restored when `PLAYER_REGEN_ENABLED` fires.
 - Soft-interact CVars are set while fishing mode is active (`SoftTargetInteract=3`
@@ -233,9 +247,11 @@ visible to keep the countdown live.
 ```
 SylsTools/
   SylsTools.toc          metadata, load order, addon-compartment hook
+  Bindings.xml           Key Bindings menu entries
   Core.lua               namespace, event bus, module registry, saved vars, /syl, API shims
+  Spellbook.lua          shared spellbook scanner (known spells, ranks, future spells)
   UI/
-    Widgets.lua          header, button, checkbox, stepper, item slot, key-bind capture
+    Widgets.lua          header, button, checkbox, stepper, item slot, key-bind capture, scroll list
     MainFrame.lua        window + module sidebar
   Modules/
     Fishing/
@@ -246,6 +262,14 @@ SylsTools/
       Gear.lua           weapon tracking, pole swap, auto re-equip
       Tracker.lua        session + lifetime stats
       Panel.lua          the Fishing page in the window
+    Spells/
+      Spells.lua         trainer capture, upcoming-spell model, level-up notice
+      SpellbookTab.lua   tab + side panel on the spellbook
+      Panel.lua          the Upcoming Spells page
+    Guides/
+      Guides.lua         guide registry, role suggestion, ability state -> rows
+      Data/Warrior.lua   Warrior Tank + Damage/Levelling guides
+      Panel.lua          the Class Guides page
 tests/
   run.lua                headless tests with a mocked WoW API (lua5.1)
 ```
@@ -255,6 +279,9 @@ tests/
   `ST_GEAR_CHANGED`) share the same bus through `ST:Fire()`.
 - **API shims:** `ST.API` wraps APIs that moved between client generations
   (spell info, container access, item info, timers).
+- **Safe event registration:** registering an event the client doesn't know is
+  wrapped in `pcall`, because modern clients throw on unknown events. This
+  keeps the suite working if WoW Forever lacks a classic-era event.
 - **No libraries.** There are no Ace3 or LibStub dependencies for now, which
   keeps the code fully visible and small.
 
@@ -268,9 +295,101 @@ tests/
 ## 7. Roadmap
 - v0.1: fishing features, the event probe, and slash configuration.
 - v0.2: Syl's Tools suite structure, the main window and Fishing page,
-  automatic weapon tracking, and auto re-equip. *(current)*
-- v0.2.x: wire the bite signal if the probe finds one, and a minimap button
-  (for clients without the addon menu).
-- v0.3: lure application button, fishing outfit (hat/gloves/boots),
-  pool tracking, and achievement/rare-catch alerts.
+  automatic weapon tracking, and auto re-equip.
+- v0.3: the Upcoming Spells module (spellbook tab), the Class Guides module
+  (Warrior first), and the Key Bindings menu entry for fishing. *(current)*
+- v0.3.x: guides for the remaining classes, and wiring the bite signal if the
+  probe finds one.
+- v0.4: an optional in-combat "next ability" hint for guides (see §9.4), a
+  lure button, a fishing outfit, and a minimap button.
 - v1.0: localisation, CurseForge/Wago release.
+
+## 8. Upcoming Spells module
+
+**Goal:** answer "what do I get at my next levels, and what can I train right
+now?" without leaving the game. This is the same idea as the "What's Training"
+style of addon, built into the suite.
+
+### 8.1 Data: read from the game, not bundled
+WoW Forever has its own revamped 1-60 content, so a bundled spell/level table
+copied from old Classic data could be wrong. Instead:
+1. **Class trainer capture.** When the player opens their class trainer
+   (`TRAINER_SHOW`, skipping profession trainers), every service is read with
+   the "available / unavailable / used" filters all switched on. That covers
+   spells you're too low for as well. The player's own filter settings are
+   restored straight afterwards. The data is stored **per class, account-wide**
+   (`SylsToolsDB.modules.spells.trainer[CLASS]`), so alts benefit too: name,
+   rank, level requirement, cost and icon.
+2. **Spellbook "future spells".** If the client lists unlearned spells in the
+   spellbook (modern `C_SpellBook` `FutureSpell` items or the classic
+   `FUTURESPELL` type), they are merged in, with their level from
+   `GetSpellLevelLearned`.
+
+Possible later addition: a bundled seed list, used only until the first
+trainer visit, if the game data turns out to be stable.
+
+### 8.2 Model
+- *Known* is decided by the shared spellbook scanner (`Spellbook.lua`), by name
+  and rank. Knowing a higher rank counts as knowing a lower one.
+- **Ready to train:** level requirement ≤ your level and not known, with the
+  total cost.
+- **Upcoming:** grouped by level, with the next level highlighted. It shows the
+  next 10 levels by default, or every level if you choose.
+
+### 8.3 UI
+- **Spellbook tab.** A tab on the right edge of the spellbook (classic
+  `SpellBookFrame` or modern `PlayerSpellsFrame`, which loads on demand)
+  toggles a side panel docked next to the book. It is attached only with
+  `HookScript` (OnShow/OnHide), with no Blizzard functions replaced, to avoid
+  taint. It remembers whether it was open.
+- **Window page.** The same list, plus settings: show the spellbook tab, show
+  every level, and a level-up chat notice.
+- **Level-up notice.** "Level 14! New at your trainer: Revenge,
+  Demoralizing Shout".
+
+## 9. Class Guides module
+
+**Goal:** new players get in-game, plain-language help for the role they
+want to play, based on the abilities they *actually have right now*. Example: a
+new Warrior who wants to tank learns that Sunder Armor is their threat button
+at level 10, that Revenge comes at 14, and what to do when an enemy runs to
+the healer.
+
+### 9.1 Content model
+Guides are data files (`Modules/Guides/Data/<Class>.lua`), one per role:
+- `intro`: what the role is about, in plain words.
+- `sections`: themed groups such as "Before the pull", "Pulling", "One enemy:
+  what to press" (priority order), "Several enemies", "An enemy is attacking
+  someone else", and "Emergencies".
+- `entries`: either an **ability** (`spell` ID plus a fallback `name`,
+  optional `stance` and `talent` flags, and a `text` on how and when to use it)
+  or a **tip** (plain advice).
+
+### 9.2 Adapting to the player
+- Abilities you know are shown in full colour. Ones you don't know yet are
+  greyed out with "unlocks at level N". That level comes from the Upcoming
+  Spells trainer data when available, otherwise from a hint in the guide.
+  Talents are labelled "talent".
+- "Only show abilities I have" collapses the guide to what you can press today.
+- The role is auto-suggested from the talent tree with the most points (when
+  the client exposes talent trees). The player can pick a role, and that
+  choice is saved per character.
+- Matching is by spell **name**, so ranks don't matter, and a spell ID that
+  differs on Forever still works through the fallback name.
+
+### 9.3 Content status
+- **Warrior: Tank (Protection)** and **Damage & Levelling (Arms/Fury)** are
+  written.
+- Other classes show a "coming soon" message. The plan is to add a Tank,
+  Healer or Damage guide for each class as appropriate, starting with the
+  roles new players struggle with most: tanks and healers.
+- The content describes classic-style mechanics. Abilities WoW Forever changes
+  need their text updated.
+
+### 9.4 Rules note
+Guides are **reference text**. A possible later addition is an optional
+out-of-the-way "suggested next ability" highlight while in combat. Note that
+Midnight-era clients restrict addon access to combat data in some contexts,
+and Blizzard has signalled it doesn't want addons to "solve" rotations. Any
+in-combat helper must stay a passive hint, never press anything, and be
+re-checked against the policy before shipping.

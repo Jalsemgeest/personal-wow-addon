@@ -34,8 +34,24 @@ local function stub()
         UnregisterAllEvents = function(self) self._all = false; self._events = {} end,
         SetAttribute = function(self, k, v) self._attrs[k] = v end,
         GetAttribute = function(self, k) return self._attrs[k] end,
-        Show = function(self) self._shown = true end,
-        Hide = function(self) self._shown = false end,
+        Show = function(self)
+            if self._shown then return end
+            self._shown = true
+            if self._scripts.OnShow then self._scripts.OnShow(self) end
+            for _, fn in ipairs(self._hooks and self._hooks.OnShow or {}) do fn(self) end
+        end,
+        Hide = function(self)
+            if not self._shown then return end
+            self._shown = false
+            if self._scripts.OnHide then self._scripts.OnHide(self) end
+            for _, fn in ipairs(self._hooks and self._hooks.OnHide or {}) do fn(self) end
+        end,
+        SetShown = function(self, v) if v then self:Show() else self:Hide() end end,
+        HookScript = function(self, name, fn)
+            self._hooks = self._hooks or {}
+            self._hooks[name] = self._hooks[name] or {}
+            table.insert(self._hooks[name], fn)
+        end,
         IsShown = function(self) return self._shown end,
         GetPoint = function() return "CENTER", nil, "CENTER", 0, 0 end,
         SetText = function(self, t) self._text = t end,
@@ -75,7 +91,9 @@ function SetCVar(name, value) W.cvars[name] = tostring(value) end
 function ClearOverrideBindings() W.overrides = {} end
 function SetOverrideBindingClick(_, _, key, button) W.overrides[key] = { kind = "click", target = button } end
 function SetOverrideBinding(_, _, key, command) W.overrides[key] = { kind = "command", target = command } end
-function GetBindingKey() return nil end
+function GetBindingKey(command)
+    if command == "CLICK SylsToolsFishingCastButton:LeftButton" and W.gameKeys then return unpack(W.gameKeys) end
+end
 function GetInventoryItemLink(_, slot) return W.equipped[slot] end
 function UnitChannelInfo()
     local c = W.channel
@@ -89,7 +107,40 @@ function GetNumLootItems() return #W.loot end
 function GetLootSlotLink(i) return W.loot[i][1] end
 function GetLootSlotInfo(i) return "tex", "name", W.loot[i][2] end
 function date() return "12:00:00" end
+unpack = unpack or table.unpack
 UIParent = stub()
+-- Player / spellbook / trainer
+W.class, W.level = "WARRIOR", 12
+W.spellbook = {}      -- { { name, rank, id } }
+W.trainer = {}        -- { { name, rank, category, level, cost } }
+W.trainerFilters = { available = 1, unavailable = nil, used = nil }
+W.talentPoints = { 0, 0, 5 }
+function UnitClass() return W.class:sub(1, 1) .. W.class:sub(2):lower(), W.class end
+function UnitLevel() return W.level end
+function GetNumSpellTabs() return 1 end
+function GetSpellTabInfo() return "General", "tex", 0, #W.spellbook end
+function GetSpellBookItemName(slot) local e = W.spellbook[slot]; return e[1], e[2] end
+function GetSpellBookItemInfo(slot) return "SPELL", W.spellbook[slot][3] end
+function GetSpellTexture(id) return "icon" .. tostring(id) end
+local function visibleTrainer()
+    local out = {}
+    for _, t in ipairs(W.trainer) do
+        local cat = t[3]
+        if cat == "header" or W.trainerFilters[cat] then out[#out + 1] = t end
+    end
+    return out
+end
+function GetNumTrainerServices() return #visibleTrainer() end
+function GetTrainerServiceInfo(i) local t = visibleTrainer()[i]; return t[1], t[2], t[3] end
+function GetTrainerServiceLevelReq(i) return visibleTrainer()[i][4] end
+function GetTrainerServiceCost(i) return visibleTrainer()[i][5] end
+function GetTrainerServiceIcon(i) return "tex:" .. visibleTrainer()[i][1] end
+function GetTrainerServiceTypeFilter(f) return W.trainerFilters[f] end
+function SetTrainerServiceTypeFilter(f, v) W.trainerFilters[f] = (v == 1) and 1 or nil end
+function IsTradeskillTrainer() return W.tradeskillTrainer end
+function GetNumTalentTabs() return 3 end
+function GetTalentTabInfo(t) return "Tree" .. t, "icon", W.talentPoints[t] end
+function time() return 1700000000 end
 DEFAULT_CHAT_FRAME = { AddMessage = function(_, msg) table.insert(W.chat, msg) end }
 ERR_FISH_ESCAPED = "Your fish got away!"
 W.timers = {}
@@ -519,6 +570,177 @@ test("logout restores every CVar we touched", function()
     fire("PLAYER_LOGOUT")
     eq(W.cvars.Sound_MusicVolume, "0.6")
     eq(W.cvars.SoftTargetInteract, "1")
+end)
+
+-- Game key binding ------------------------------------------------------
+test("game keybinding reels while fishing even without a Syl's Tools key", function()
+    stopFishing() -- previous test left a cast running
+    ST:HandleSlash("fishing key none")
+    W.gameKeys = { "G" }
+    fire("UPDATE_BINDINGS")
+    eq(W.overrides.G, nil, "normal binding handles casting")
+    startFishing(20)
+    eq(W.overrides.G.target, "INTERACTTARGET")
+    stopFishing()
+    eq(W.overrides.G, nil)
+    eq(_G["BINDING_NAME_CLICK SylsToolsFishingCastButton:LeftButton"], "Fishing: Cast / Reel")
+    W.gameKeys = nil
+    fire("UPDATE_BINDINGS")
+end)
+
+-- Spellbook + Upcoming Spells --------------------------------------------
+local Spells = ST:GetModule("spells")
+local Guides = ST:GetModule("guides")
+
+test("spellbook: knows spells by name and rank", function()
+    W.spellbook = {
+        { "Heroic Strike", "Rank 2", 284 }, { "Battle Shout", "Rank 1", 6673 }, { "Charge", "Rank 1", 100 },
+        { "Rend", "Rank 1", 772 }, { "Thunder Clap", "Rank 1", 6343 }, { "Defensive Stance", "", 71 },
+        { "Sunder Armor", "Rank 1", 7386 }, { "Taunt", "", 355 }, { "Bloodrage", "", 2687 },
+    }
+    fire("SPELLS_CHANGED")
+    local B = ST.Spellbook
+    assert(B:Knows("Heroic Strike"))
+    assert(B:Knows("Heroic Strike", "Rank 1"), "lower rank counts")
+    assert(not B:Knows("Heroic Strike", "Rank 3"))
+    assert(B:Knows("Defensive Stance"))
+    assert(B:Knows(6673), "by id")
+    assert(not B:Knows("Revenge"))
+end)
+
+test("upcoming: trainer capture records every service and restores filters", function()
+    W.trainer = {
+        { "Warrior", "", "header", 0, 0 },
+        { "Heroic Strike", "Rank 2", "used", 8, 60 },
+        { "Overpower", "Rank 1", "available", 12, 100 },
+        { "Shield Bash", "Rank 1", "available", 12, 100 },
+        { "Revenge", "Rank 1", "unavailable", 14, 200 },
+        { "Demoralizing Shout", "Rank 1", "unavailable", 14, 200 },
+        { "Heroic Strike", "Rank 3", "unavailable", 16, 300 },
+        { "Execute", "Rank 1", "unavailable", 24, 1000 },
+    }
+    fire("TRAINER_SHOW")
+    local data = SylsToolsDB.modules.spells.trainer.WARRIOR
+    eq(#data.spells, 7)
+    eq(W.trainerFilters.available, 1)
+    eq(W.trainerFilters.unavailable, nil, "filters restored")
+    eq(W.trainerFilters.used, nil)
+end)
+
+test("upcoming: tradeskill trainers are ignored", function()
+    W.tradeskillTrainer = true
+    W.trainer = { { "Fishing", "", "available", 5, 10 } }
+    fire("TRAINER_SHOW")
+    eq(#SylsToolsDB.modules.spells.trainer.WARRIOR.spells, 7)
+    W.tradeskillTrainer = nil
+end)
+
+test("upcoming: ready, next level and later grouping", function()
+    local up = Spells:Upcoming()
+    eq(up[1].name, "Overpower"); eq(up[1].ready, true)
+    eq(up[2].name, "Shield Bash"); eq(up[2].ready, true)
+    eq(up[3].level, 14)
+    for _, sp in ipairs(up) do assert(not (sp.name == "Heroic Strike" and sp.rank == "Rank 2"), "known rank hidden") end
+    local rows = Spells:BuildRows(10)
+    assert(rows[1].text:find("Ready to train now"), rows[1].text)
+    assert(rows[2].text:find("Total cost"), "cost line")
+    local foundNext, foundExecute = false, false
+    for _, r in ipairs(rows) do
+        if r.kind == "header" and r.text:find("Level 14") and r.text:find("next level") == nil then end
+        if r.kind == "header" and r.text:find("Level 13") then error("no level 13 header expected") end
+        if r.title == "Execute" then foundExecute = true end
+        if r.kind == "header" and r.text:find("Level 14") then foundNext = true end
+    end
+    assert(foundNext, "level 14 header")
+    eq(foundExecute, false, "level 24 is beyond 10 levels ahead")
+    local all = Spells:BuildRows(0)
+    local hasExecute = false
+    for _, r in ipairs(all) do if r.title == "Execute" then hasExecute = true end end
+    assert(hasExecute, "show all levels")
+    eq(Spells:LevelFor("Revenge"), 14)
+end)
+
+test("upcoming: level-up message lists new spells", function()
+    W.chat = {}
+    fire("PLAYER_LEVEL_UP", 14)
+    local found = false
+    for _, m in ipairs(W.chat) do if m:find("Level 14!") and m:find("Revenge") then found = true end end
+    assert(found, "level-up notice")
+end)
+
+test("upcoming: spellbook tab attaches and toggles a side panel", function()
+    _G.SpellBookFrame = CreateFrame("Frame", "SpellBookFrame")
+    fire("ADDON_LOADED", "Blizzard_SpellBook")
+    SpellBookFrame:Show()
+    local tab = _G.SylsToolsSpellbookTab
+    assert(tab and tab:IsShown(), "tab shown with spellbook")
+    tab:Click()
+    local panel = _G.SylsToolsUpcomingSpellsPanel
+    eq(panel:IsShown(), true)
+    SpellBookFrame:Hide()
+    eq(tab:IsShown(), false); eq(panel:IsShown(), false)
+    SpellBookFrame:Show()
+    eq(panel:IsShown(), true, "reopens with the spellbook")
+    Spells.db.spellbookTab = false
+    ST:Fire("ST_SETTINGS_CHANGED")
+    eq(tab:IsShown(), false)
+    Spells.db.spellbookTab = true
+    ST:Fire("ST_SETTINGS_CHANGED")
+    eq(tab:IsShown(), true)
+    SpellBookFrame:Hide()
+end)
+
+test("upcoming: window page builds", function()
+    ST.UI:Show("spells")
+    eq(ST.UI.selected, "spells")
+    assert(Spells.Panel.list.rows and #Spells.Panel.list.rows > 0)
+    assert(Spells.Panel.info:GetText():find("class trainer"))
+end)
+
+-- Class guides --------------------------------------------------------------
+test("guides: suggests tank from talent points, abilities reflect spellbook", function()
+    eq(Guides:Current().key, "tank")
+    local rows = Guides:BuildRows(Guides:Current())
+    local byName = {}
+    for _, r in ipairs(rows) do
+        if r.kind == "item" then byName[r.title:match("^([^|]-)%s*$") or r.title:match("^(.-)  ")] = r end
+    end
+    local def = byName["Defensive Stance"]
+    assert(def and not def.dim, "known ability bright")
+    local rev = byName["Revenge"]
+    assert(rev and rev.dim, "unknown ability dim")
+    local revRow
+    for _, r in ipairs(rows) do if r.title and r.title:find("^Revenge") then revRow = r end end
+    assert(revRow.title:find("unlocks at level 14"), revRow.title)
+    local slam
+    for _, r in ipairs(rows) do if r.title and r.title:find("^Shield Slam") then slam = r end end
+    assert(slam.title:find("talent"), slam.title)
+    assert(rows[2].text:find("You have %d+ of the %d+ abilities"), rows[2].text)
+end)
+
+test("guides: hide unknown, choose dps, other class message", function()
+    Guides.db.hideUnknown = true
+    for _, r in ipairs(Guides:BuildRows(Guides:Current())) do
+        assert(not r.dim, "hidden: " .. tostring(r.title))
+    end
+    Guides.db.hideUnknown = false
+    Guides:Choose("dps")
+    eq(Guides:Current().key, "dps")
+    W.class = "MAGE"
+    local rows = Guides:BuildRows(Guides:Current())
+    assert(rows[1].text:find("no guide for your class"), rows[1].text)
+    W.class = "WARRIOR"
+end)
+
+test("guides: window page builds with role buttons", function()
+    ST.UI:Show("guides")
+    eq(ST.UI.selected, "guides")
+    local P = Guides.Panel
+    eq(P.buttons[1]:IsShown(), true)
+    eq(P.buttons[2]:IsShown(), true)
+    P.buttons[1]:Click()
+    eq(Guides:Current().key, "tank")
+    assert(#P.list.rows > 10)
 end)
 
 test("no handler errors were printed", function()

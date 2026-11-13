@@ -16,20 +16,29 @@ local API = ST.API
 local OneButton = { active = false, boundAs = nil }
 F.OneButton = OneButton
 
+-- The command shown in Game Menu > Key Bindings > AddOns > Syl's Tools (Bindings.xml).
+OneButton.GAME_BINDING = "CLICK SylsToolsFishingCastButton:LeftButton"
+
 local owner = CreateFrame("Frame", "SylsToolsFishingBindingOwner", UIParent)
-local castButton
 local softStash = ST:NewCVarStash()
 
-local function buildButton()
-    if castButton then return castButton end
-    castButton = CreateFrame("Button", "SylsToolsFishingCastButton", UIParent, "SecureActionButtonTemplate")
-    castButton:SetSize(1, 1)
-    castButton:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -100, 100) -- off-screen; used via binding only
-    castButton:RegisterForClicks("AnyUp", "AnyDown")
-    castButton:SetAttribute("type", "spell")
-    return castButton
+-- Created at load so the Key Bindings entry works from the first frame.
+local castButton = CreateFrame("Button", "SylsToolsFishingCastButton", UIParent, "SecureActionButtonTemplate")
+castButton:SetSize(1, 1)
+castButton:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -100, 100) -- off-screen; used via key bindings only
+castButton:RegisterForClicks("AnyUp", "AnyDown")
+castButton:SetAttribute("type", "spell")
+castButton:SetAttribute("spell", "Fishing")
+
+local function updateSpell()
+    if not API.InCombat() then castButton:SetAttribute("spell", F:SpellName()) end
 end
 
+-- Keys bound to "Fishing: Cast / Reel" in the game's own Key Bindings menu.
+function OneButton:GameKeys()
+    if not GetBindingKey then return {} end
+    return { GetBindingKey(self.GAME_BINDING) }
+end
 
 function OneButton:WantActive()
     local c = F.cdb
@@ -57,19 +66,31 @@ local function clearBindings()
     OneButton.boundAs = nil
 end
 
--- Bind the key to "cast" or "reel". Out of combat only.
-local function bind(as)
-    local key = F.cdb.key
-    if API.InCombat() or not key then return end
-    if OneButton.boundAs == as then return end
-    ClearOverrideBindings(owner)
-    if as == "cast" then
-        buildButton():SetAttribute("spell", F:SpellName())
-        SetOverrideBindingClick(owner, true, key, "SylsToolsFishingCastButton", "LeftButton")
-    elseif as == "reel" then
-        SetOverrideBinding(owner, true, key, "INTERACTTARGET")
+-- Apply override bindings for the current state. Out of combat only.
+--   not fishing: the Syl's Tools key (if fishing mode is on) clicks the cast button.
+--                Game-menu keys already click it through their normal binding.
+--   fishing:     the Syl's Tools key AND the game-menu keys become INTERACTTARGET (reel).
+local function applyBindings()
+    if API.InCombat() then return end
+    local fishing = F.State:IsFishing()
+    local custom = OneButton.active and F.cdb.key or nil
+    local keys = {}
+    if custom then keys[#keys + 1] = custom end
+    if fishing then
+        for _, k in ipairs(OneButton:GameKeys()) do
+            if k ~= custom then keys[#keys + 1] = k end
+        end
     end
-    OneButton.boundAs = as
+    local signature = (fishing and "reel:" or "cast:") .. table.concat(keys, ",")
+    if OneButton.boundAs == signature then return end
+    ClearOverrideBindings(owner)
+    if fishing then
+        for _, k in ipairs(keys) do SetOverrideBinding(owner, true, k, "INTERACTTARGET") end
+    elseif custom then
+        updateSpell()
+        SetOverrideBindingClick(owner, true, custom, "SylsToolsFishingCastButton", "LeftButton")
+    end
+    OneButton.boundAs = signature
 end
 
 function OneButton:UpdateSoftTarget()
@@ -78,16 +99,12 @@ end
 
 function OneButton:Refresh()
     if API.InCombat() then return end -- PLAYER_REGEN_ENABLED will call us again
+    updateSpell()
     local want = self:WantActive()
-    if want then
-        if not self.active then applySoftTarget(true) end
-        self.active = true
-        bind(F.State:IsFishing() and "reel" or "cast")
-    elseif self.active then
-        self.active = false
-        clearBindings()
-        applySoftTarget(false)
-    end
+    if want and not self.active then applySoftTarget(true) end
+    if not want and self.active then applySoftTarget(false) end
+    self.active = want and true or false
+    applyBindings()
     ST:Fire("ST_MODE_CHANGED", self.active)
 end
 
@@ -105,12 +122,10 @@ ST:On("PLAYER_REGEN_ENABLED", function()
     OneButton.boundAs = nil
     OneButton:Refresh()
 end)
-ST:On("ST_FISHING_START", function()
-    if OneButton.active then bind("reel") end
-end)
-ST:On("ST_FISHING_STOP", function()
-    if OneButton.active then bind("cast") end
-end)
+ST:On("ST_FISHING_START", applyBindings)
+ST:On("ST_FISHING_STOP", applyBindings)
+ST:On("UPDATE_BINDINGS", function() OneButton.boundAs = nil; applyBindings() end)
+ST:On("SPELLS_CHANGED", updateSpell)
 ST:On("PLAYER_LOGOUT", function() applySoftTarget(false) end)
 
 -- Returns true on success. key = nil/"" clears it.

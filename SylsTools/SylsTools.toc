@@ -1,0 +1,21 @@
+## Interface: 16001
+## Title: Syl's Tools
+## Notes: A suite of quality-of-life tools. Fishing: big bobber HUD, one-key cast & reel, weapon swap with auto-restore, catch tracking. No automation.
+## Author: Syl
+## Version: 0.2.0
+## SavedVariables: SylsToolsDB
+## SavedVariablesPerCharacter: SylsToolsCharDB
+## IconTexture: Interface\Icons\INV_Misc_Gear_01
+## AddonCompartmentFunc: SylsTools_OnAddonCompartmentClick
+
+Core.lua
+UI\Widgets.lua
+UI\MainFrame.lua
+
+Modules\Fishing\Fishing.lua
+Modules\Fishing\State.lua
+Modules\Fishing\Alert.lua
+Modules\Fishing\OneButton.lua
+Modules\Fishing\Gear.lua
+Modules\Fishing\Tracker.lua
+Modules\Fishing\Panel.lua

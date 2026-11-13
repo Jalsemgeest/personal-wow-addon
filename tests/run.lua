@@ -1,7 +1,7 @@
--- Headless tests for HookLine against a mocked WoW API.
+-- Headless tests for Syl's Tools against a mocked WoW API.
 -- Run from the repo root:  lua5.1 tests/run.lua
 
-local ADDON_DIR = "HookLine/"
+local ADDON_DIR = "SylsTools/"
 
 ---------------------------------------------------------------------------
 -- Mock WoW environment
@@ -41,18 +41,26 @@ local function stub()
         SetText = function(self, t) self._text = t end,
         SetFormattedText = function(self, f, ...) self._text = string.format(f, ...) end,
         GetText = function(self) return self._text end,
+        SetChecked = function(self, v) self._checked = v end,
+        GetChecked = function(self) return self._checked end,
+        IsKeyboardEnabled = function(self) return self._kb end,
+        EnableKeyboard = function(self, v) self._kb = v end,
+        Click = function(self, button) if self._scripts.OnClick then self._scripts.OnClick(self, button or "LeftButton") end end,
         CreateTexture = function() return stub() end,
         CreateFontString = function() return stub() end,
     }
     return setmetatable(obj, {
         __index = function(_, k)
-            return methods[k] or function() end
+            if methods[k] then return methods[k] end
+            -- unknown WoW widget methods (Capitalized) are no-ops; plain fields stay nil
+            if type(k) == "string" and k:match("^%u") then return function() end end
         end,
     })
 end
 
-function CreateFrame(_, name, _, template)
+function CreateFrame(_, name, parent, template)
     local f = stub()
+    f._parent = parent
     f._name = name
     f._template = template
     table.insert(W.frames, f)
@@ -84,7 +92,30 @@ function date() return "12:00:00" end
 UIParent = stub()
 DEFAULT_CHAT_FRAME = { AddMessage = function(_, msg) table.insert(W.chat, msg) end }
 ERR_FISH_ESCAPED = "Your fish got away!"
-C_Timer = { After = function(_, fn) W.timers = W.timers or {}; table.insert(W.timers, fn) end }
+W.timers = {}
+C_Timer = { After = function(delay, fn) table.insert(W.timers, { at = W.time + delay, fn = fn }) end }
+-- Advance the clock, running due timers.
+local function advance(seconds)
+    W.time = W.time + seconds
+    local due, keep = {}, {}
+    for _, t in ipairs(W.timers) do
+        if t.at <= W.time then due[#due + 1] = t else keep[#keep + 1] = t end
+    end
+    W.timers = keep
+    for _, t in ipairs(due) do t.fn() end
+end
+local function runAllTimers()
+    while #W.timers > 0 do
+        local list = W.timers
+        W.timers = {}
+        for _, t in ipairs(list) do t.fn() end
+    end
+end
+GameTooltip = setmetatable({}, { __index = function() return function() end end })
+UISpecialFrames = {}
+function IsShiftKeyDown() return W.shift end
+function IsAltKeyDown() return false end
+function IsControlKeyDown() return false end
 C_Spell = { GetSpellName = function(id) if id == 7620 then return "Fishing" end end }
 C_Container = {
     GetContainerNumSlots = function(bag) return W.bags[bag] and 16 or 0 end,
@@ -106,6 +137,7 @@ C_Item = {
         local id = tonumber(tostring(link):match("item:(%d+)"))
         return ITEMS[id] and ITEMS[id][3] or 0
     end,
+    GetItemCount = function(item) return W.counts and W.counts[item] or 1 end,
     EquipItemByName = function(item, slot)
         table.insert(W.equipCalls, { item = item, slot = slot })
         W.equipped[slot] = item
@@ -119,12 +151,13 @@ local function link(id) return "|cffffffff|Hitem:" .. id .. "::::|h[item " .. id
 -- Load addon
 ---------------------------------------------------------------------------
 local ns = {}
-local toc = assert(io.open(ADDON_DIR .. "HookLine.toc")):read("*a")
-for file in toc:gmatch("([%w_]+%.lua)") do
-    local chunk = assert(loadfile(ADDON_DIR .. file))
-    chunk("HookLine", ns)
+local toc = assert(io.open(ADDON_DIR .. "SylsTools.toc")):read("*a")
+for file in toc:gmatch("([%w_\\/]+%.lua)") do
+    local chunk = assert(loadfile(ADDON_DIR .. file:gsub("\\", "/")))
+    chunk("SylsTools", ns)
 end
-local HL = ns.HL
+local ST = ns.ST
+local F = ST:GetModule("fishing")
 
 local function fire(event, ...)
     for _, f in ipairs(W.frames) do
@@ -172,50 +205,53 @@ W.cvars = {
     SoftTargetInteract = "1", SoftTargetInteractArc = "0", SoftTargetInteractRange = "10",
     SoftTargetIconGameObject = "0", SoftTargetIconInteract = "0",
 }
+local function equip(slot, id) W.equipped[slot] = id and link(id) or nil; fire("PLAYER_EQUIPMENT_CHANGED", slot, false) end
 
-test("ADDON_LOADED initialises saved variables with defaults", function()
-    fire("ADDON_LOADED", "HookLine")
-    assert(HookLineDB and HookLineCharDB)
-    eq(HL.db.alert.enabled, true)
-    eq(HL.db.lifetime.totals.casts, 0)
+test("ADDON_LOADED initialises suite + module saved variables", function()
+    fire("ADDON_LOADED", "SylsTools")
+    assert(SylsToolsDB and SylsToolsCharDB)
+    eq(F.db, SylsToolsDB.modules.fishing)
+    eq(F.cdb, SylsToolsCharDB.modules.fishing)
+    eq(F.db.alert.enabled, true)
+    eq(F.cdb.autoRestore, true)
+    eq(F.cdb.restoreDelay, 60)
 end)
 
 test("defaults merge keeps existing values", function()
-    local t = HL.deepDefaults({ a = 5, sub = { x = 1 } }, { a = 1, b = 2, sub = { x = 9, y = 3 } })
+    local t = ST.deepDefaults({ a = 5, sub = { x = 1 } }, { a = 1, b = 2, sub = { x = 9, y = 3 } })
     eq(t.a, 5); eq(t.b, 2); eq(t.sub.x, 1); eq(t.sub.y, 3)
 end)
 
 test("fishing spell detection by ID and name", function()
-    assert(HL.API.IsFishingSpell(7620))
-    assert(HL.API.IsFishingSpell(nil, "Fishing"))
-    assert(not HL.API.IsFishingSpell(133, "Fireball"))
+    assert(F:IsFishingSpell(7620))
+    assert(F:IsFishingSpell(nil, "Fishing"))
+    assert(not F:IsFishingSpell(133, "Fireball"))
 end)
 
 test("non-fishing channel is ignored", function()
     W.channel = { name = "Arcane Missiles", startMS = 0, endMS = 5000, spellID = 5143 }
     fire("UNIT_SPELLCAST_CHANNEL_START", "player", "g", 5143)
-    eq(HL.Fishing:IsFishing(), false)
+    eq(F.State:IsFishing(), false)
     W.channel = nil
 end)
 
 test("channel start/stop drives state, HUD, casts and sound focus", function()
     startFishing(20)
-    eq(HL.Fishing:IsFishing(), true)
-    eq(HL.Tracker.session.casts, 1)
-    eq(_G.HookLineHUD:IsShown(), true)
+    eq(F.State:IsFishing(), true)
+    eq(F.Tracker.session.casts, 1)
+    eq(_G.SylsToolsFishingHUD:IsShown(), true)
     eq(W.cvars.Sound_MusicVolume, "0")
     eq(W.cvars.Sound_SFXVolume, "1")
     W.time = W.time + 5
-    eq(HL.Fishing:Remaining(), 15)
+    eq(F.State:Remaining(), 15)
     stopFishing()
-    eq(HL.Fishing:IsFishing(), false)
-    eq(HL.Fishing.lastStopReason, "ended")
-    eq(_G.HookLineHUD:IsShown(), false)
+    eq(F.State:IsFishing(), false)
+    eq(F.State.lastStopReason, "ended")
+    eq(_G.SylsToolsFishingHUD:IsShown(), false)
 end)
 
 test("sound settings restored after idle timer", function()
-    for _, fn in ipairs(W.timers or {}) do fn() end
-    W.timers = {}
+    advance(31)
     eq(W.cvars.Sound_MusicVolume, "0.6")
     eq(W.cvars.Sound_SFXVolume, "0.4")
 end)
@@ -224,13 +260,13 @@ test("expired cast is detected and flashes Recast", function()
     startFishing(20)
     W.time = W.time + 20
     stopFishing()
-    eq(HL.Fishing.lastStopReason, "expired")
-    eq(_G.HookLineFlash:IsShown(), true)
+    eq(F.State.lastStopReason, "expired")
+    eq(_G.SylsToolsFlash:IsShown(), true)
 end)
 
 test("fish escaped message is counted", function()
     fire("UI_ERROR_MESSAGE", 1, "Your fish got away!")
-    eq(HL.Tracker.session.escaped, 1)
+    eq(F.Tracker.session.escaped, 1)
 end)
 
 test("fishing loot is recorded by zone and item", function()
@@ -241,37 +277,141 @@ test("fishing loot is recorded by zone and item", function()
     W.loot = { { link(6303), 1 } }
     fire("LOOT_OPENED", false)
     W.fishingLoot = false
-    eq(HL.Tracker.session.catches, 1)
-    eq(HL.Tracker.session.items[6303].count, 1)
-    local z = HL.db.lifetime.zones["Elwynn Forest"]
+    eq(F.Tracker.session.catches, 1)
+    eq(F.Tracker.session.items[6303].count, 1)
+    local z = F.db.lifetime.zones["Elwynn Forest"]
     eq(z.catches, 1); eq(z.items[6303], 1); eq(z.subzones["Crystal Lake"], 1)
 end)
 
 test("non-fishing loot is ignored", function()
     W.loot = { { link(2000), 1 } }
     fire("LOOT_OPENED", false)
-    eq(HL.Tracker.session.catches, 1)
+    eq(F.Tracker.session.catches, 1)
 end)
 
-test("one-key: no key means no bindings", function()
-    W.equipped[16] = link(6256)
+-- Gear --------------------------------------------------------------------
+test("gear: weapons are remembered automatically when equipped", function()
+    runAllTimers()
+    equip(16, 2000)
+    equip(17, 2001)
+    eq(F.cdb.savedWeapons[16], link(2000))
+    eq(F.cdb.savedWeapons[17], link(2001))
+end)
+
+test("gear: equipping a pole by hand keeps the remembered weapons", function()
+    W.equipped[17] = nil
+    equip(16, 6256)
+    eq(F.cdb.savedWeapons[16], link(2000))
+    eq(F.cdb.savedWeapons[17], link(2001))
+    equip(16, 2000); equip(17, 2001)
+end)
+
+test("gear: Equip Pole picks the best pole and keeps weapons", function()
+    W.bags[0] = { [1] = link(6256), [5] = link(6365) }
+    fire("BAG_UPDATE_DELAYED")
+    W.equipCalls = {}
+    ST:HandleSlash("fishing gear")
+    eq(W.equipCalls[1].item, link(6365), "best pole")
+    eq(W.equipCalls[1].slot, 16)
+    W.equipped[17] = nil
     fire("PLAYER_EQUIPMENT_CHANGED", 16, false)
+    eq(F.cdb.savedWeapons[16], link(2000))
+    eq(F.cdb.savedWeapons[17], link(2001))
+end)
+
+test("gear: auto-restore after idle delay, off hand second", function()
+    startFishing(20)
+    W.time = W.time + 4
+    stopFishing()
+    local rem = F.Gear:RestoreRemaining()
+    eq(rem, 60)
+    W.equipCalls = {}
+    advance(59)
+    eq(#W.equipCalls, 0, "not yet")
+    advance(1)
+    eq(W.equipCalls[1].item, link(2000)); eq(W.equipCalls[1].slot, 16)
+    advance(0.3)
+    eq(W.equipCalls[2].item, link(2001)); eq(W.equipCalls[2].slot, 17)
+    eq(F.Gear:RestoreRemaining(), nil)
+end)
+
+test("gear: casting again cancels the auto-restore countdown", function()
+    equip(16, 6365); W.equipped[17] = nil
+    startFishing(20); W.time = W.time + 2; stopFishing()
+    advance(30)
+    startFishing(20)
+    eq(F.Gear:RestoreRemaining(), nil)
+    W.equipCalls = {}
+    advance(40)
+    eq(#W.equipCalls, 0, "cancelled timer must not fire")
+    W.time = W.time + 1; stopFishing()
+    eq(F.Gear:RestoreRemaining(), 60)
+end)
+
+test("gear: auto-restore in combat waits until combat ends", function()
+    fire("PLAYER_REGEN_DISABLED"); W.combat = true
+    W.equipCalls = {}
+    advance(61)
+    eq(#W.equipCalls, 0)
+    eq(F.Gear.pendingAfterCombat, true)
+    W.combat = false; fire("PLAYER_REGEN_ENABLED")
+    eq(W.equipCalls[1].item, link(2000))
+    runAllTimers()
+end)
+
+test("gear: auto-restore off means no countdown", function()
+    ST:HandleSlash("fishing autorestore off")
+    equip(16, 6365); W.equipped[17] = nil
+    startFishing(20); W.time = W.time + 2; stopFishing()
+    eq(F.Gear:RestoreRemaining(), nil)
+    ST:HandleSlash("fishing autorestore 90")
+    eq(F.cdb.autoRestore, true)
+    eq(F.cdb.restoreDelay, 90)
+    F.Gear:SetDelay(5)
+    eq(F.cdb.restoreDelay, 10, "clamped")
+    F.Gear:SetDelay(60)
+end)
+
+test("gear: manual restore and combat refusal", function()
+    W.combat = true
+    W.equipCalls = {}
+    ST:HandleSlash("fishing gear")
+    eq(#W.equipCalls, 0)
+    W.combat = false
+    ST:HandleSlash("fishing gear")
+    eq(W.equipCalls[1].item, link(2000))
+    runAllTimers()
+    eq(W.equipped[17], link(2001))
+end)
+
+-- One-key -----------------------------------------------------------------
+test("one-key: no key means no bindings", function()
+    equip(16, 6256)
     eq(next(W.overrides), nil)
 end)
 
 test("one-key: key + pole binds cast button, channel swaps to interact", function()
-    HL:HandleSlash("key f")
-    eq(HL.cdb.key, "F")
-    eq(HL.OneButton:IsActive(), true)
+    ST:HandleSlash("fishing key f")
+    eq(F.cdb.key, "F")
+    eq(F.OneButton:IsActive(), true)
     eq(W.overrides.F.kind, "click")
-    eq(W.overrides.F.target, "HookLineCastButton")
-    eq(_G.HookLineCastButton:GetAttribute("spell"), "Fishing")
-    eq(_G.HookLineCastButton:GetAttribute("type"), "spell")
+    eq(W.overrides.F.target, "SylsToolsFishingCastButton")
+    eq(_G.SylsToolsFishingCastButton:GetAttribute("spell"), "Fishing")
+    eq(_G.SylsToolsFishingCastButton:GetAttribute("type"), "spell")
     eq(W.cvars.SoftTargetInteract, "3")
     startFishing(20)
     eq(W.overrides.F.target, "INTERACTTARGET")
     stopFishing()
-    eq(W.overrides.F.target, "HookLineCastButton")
+    eq(W.overrides.F.target, "SylsToolsFishingCastButton")
+end)
+
+test("one-key: turning off bobber icon restores soft-target CVars", function()
+    F.db.softTarget = false
+    F.OneButton:UpdateSoftTarget()
+    eq(W.cvars.SoftTargetInteract, "1")
+    F.db.softTarget = true
+    F.OneButton:UpdateSoftTarget()
+    eq(W.cvars.SoftTargetInteract, "3")
 end)
 
 test("one-key: combat releases the key, and it returns after combat", function()
@@ -283,59 +423,98 @@ test("one-key: combat releases the key, and it returns after combat", function()
     stopFishing()
     W.combat = false
     fire("PLAYER_REGEN_ENABLED")
-    eq(W.overrides.F.target, "HookLineCastButton")
+    eq(W.overrides.F.target, "SylsToolsFishingCastButton")
+    runAllTimers()
 end)
 
 test("one-key: unequipping pole leaves fishing mode and restores CVars", function()
-    W.equipped[16] = link(2000)
-    fire("PLAYER_EQUIPMENT_CHANGED", 16, false)
-    eq(HL.OneButton:IsActive(), false)
+    equip(16, 2000)
+    eq(F.OneButton:IsActive(), false)
     eq(W.overrides.F, nil)
     eq(W.cvars.SoftTargetInteract, "1")
 end)
 
-test("gear: equips best pole and remembers weapons, then restores", function()
-    W.equipped[16] = link(2000)
-    W.equipped[17] = link(2001)
-    W.bags[0] = { [1] = link(6256), [5] = link(6365) }
-    W.equipCalls = {}
-    HL:HandleSlash("gear")
-    eq(W.equipCalls[1].item, link(6365), "best pole")
-    eq(HL.cdb.savedWeapons[16], link(2000))
-    eq(HL.cdb.savedWeapons[17], link(2001))
-    W.equipCalls = {}
-    HL:HandleSlash("gear")
-    for _, fn in ipairs(W.timers or {}) do fn() end
-    W.timers = {}
-    eq(W.equipCalls[1].item, link(2000)); eq(W.equipCalls[1].slot, 16)
-    eq(W.equipCalls[2].item, link(2001)); eq(W.equipCalls[2].slot, 17)
-    eq(HL.cdb.savedWeapons, nil)
+-- UI ----------------------------------------------------------------------
+test("ui: /syl opens the window on the fishing page", function()
+    ST:HandleSlash("")
+    eq(ST.UI:IsShown(), true)
+    eq(ST.UI.selected, "fishing")
+    assert(F.Panel.page, "panel built")
+    eq(F.Panel.page:IsShown(), true)
+    ST:HandleSlash("")
+    eq(ST.UI:IsShown(), false)
+    ST:HandleSlash("fishing")
+    eq(ST.UI:IsShown(), true)
 end)
 
-test("gear: refuses in combat", function()
-    W.combat = true
+test("ui: weapon slots and swap button reflect state", function()
+    equip(16, 2000); equip(17, 2001)
+    F.Panel:Refresh()
+    eq(F.Panel.mainSlot.link, link(2000))
+    eq(F.Panel.offSlot.link, link(2001))
+    eq(F.Panel.poleSlot.link, link(6365))
+    eq(F.Panel.swapButton:GetText(), "Equip Fishing Pole")
     W.equipCalls = {}
-    HL:HandleSlash("gear")
-    eq(#W.equipCalls, 0)
-    W.combat = false
+    F.Panel.swapButton:Click()
+    eq(W.equipCalls[1].item, link(6365))
+    W.equipped[17] = nil
+    fire("PLAYER_EQUIPMENT_CHANGED", 16, false)
+    F.Panel:Refresh()
+    eq(F.Panel.swapButton:GetText(), "Re-equip My Weapons")
+    eq(F.Panel.mainSlot.link, link(2000), "still shows remembered weapon")
+    startFishing(20); W.time = W.time + 2; stopFishing()
+    F.Panel:RefreshStatus()
+    assert(F.Panel.gearStatus:GetText():find("Re%-equipping weapons in"), F.Panel.gearStatus:GetText())
 end)
 
-test("slash help and stats do not error", function()
-    HL:HandleSlash("")
-    HL:HandleSlash("stats")
-    HL:HandleSlash("zone")
-    HL:HandleSlash("probe")
+test("ui: auto-restore checkbox and stepper", function()
+    local cb = F.Panel.autoCheck
+    cb:SetChecked(false); cb:Click()
+    eq(F.cdb.autoRestore, false)
+    eq(F.Gear:RestoreRemaining(), nil, "unchecking cancels countdown")
+    cb:SetChecked(true); cb:Click()
+    eq(F.cdb.autoRestore, true)
+    F.Panel.delay:Refresh()
+    eq(F.Panel.delay.value:GetText(), "60s")
+end)
+
+test("ui: key capture sets the one-key binding", function()
+    local kb = F.Panel.keyButton
+    kb:Click()
+    eq(kb.capturing, true)
+    W.shift = true
+    kb:GetScript("OnKeyDown")(kb, "G")
+    W.shift = false
+    eq(F.cdb.key, "SHIFT-G")
+    eq(W.overrides["SHIFT-G"].target, "SylsToolsFishingCastButton")
+    kb:Click()
+    kb:GetScript("OnKeyDown")(kb, "ESCAPE")
+    eq(F.cdb.key, "SHIFT-G", "escape cancels")
+    kb:Click(); kb:Click("Button4")
+    eq(F.cdb.key, "BUTTON4")
+end)
+
+test("ui: stats show the session", function()
+    F.Panel:Refresh()
+    assert(F.Panel.stats:GetText():find("Catches"), "stats text")
+    assert(F.Panel.items:GetText():find("item 6303"), F.Panel.items:GetText())
+end)
+
+test("slash help, stats and probe do not error", function()
+    ST:HandleSlash("help")
+    ST:HandleSlash("fishing stats")
+    ST:HandleSlash("fishing zone")
+    ST:HandleSlash("fishing probe")
     startFishing(20)
     fire("PLAYER_SOFT_INTERACT_CHANGED", "old", "new")
     stopFishing()
-    HL:HandleSlash("probe")
-    assert(#HL.db.probeLog >= 2, "probe logged events")
+    ST:HandleSlash("fishing probe")
+    assert(#F.db.probeLog >= 2, "probe logged events")
+    SylsTools_OnAddonCompartmentClick()
 end)
 
 test("logout restores every CVar we touched", function()
-    HL:HandleSlash("key F")
-    W.equipped[16] = link(6256)
-    fire("PLAYER_EQUIPMENT_CHANGED", 16, false)
+    equip(16, 6256)
     startFishing(20)
     fire("PLAYER_LOGOUT")
     eq(W.cvars.Sound_MusicVolume, "0.6")

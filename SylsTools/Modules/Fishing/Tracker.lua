@@ -1,13 +1,14 @@
--- HookLine: Fishing tracker
+-- Syl's Tools > Fishing: Fishing tracker
 -- Session + lifetime stats: casts, catches, escapes, items by zone, skill-ups.
 -- Read-only: only observes loot and events.
 
 local _, ns = ...
-local HL = (ns and ns.HL) or HookLine
-local API = HL.API
+local ST = (ns and ns.ST) or SylsTools
+local F = ns.Fishing
+local API = ST.API
 
 local Tracker = {}
-HL.Tracker = Tracker
+F.Tracker = Tracker
 
 local FISHING_LOOT_WINDOW = 2.0 -- seconds after the channel ends
 
@@ -20,10 +21,7 @@ function Tracker:NewSession()
 end
 Tracker:NewSession()
 
-local function itemIDFromLink(link)
-    return link and tonumber(link:match("item:(%d+)"))
-end
-Tracker.ItemIDFromLink = itemIDFromLink
+local itemIDFromLink = API.ItemIDFromLink
 
 local function zoneNames()
     local zone = (GetRealZoneText and GetRealZoneText()) or "Unknown"
@@ -33,7 +31,7 @@ local function zoneNames()
 end
 
 local function zoneRecord(zone)
-    local zones = HL.db.lifetime.zones
+    local zones = F.db.lifetime.zones
     local z = zones[zone]
     if not z then
         z = { catches = 0, casts = 0, items = {}, subzones = {} }
@@ -49,7 +47,7 @@ function Tracker:RecordCast()
     local s = self.session
     s.started = s.started or GetTime()
     s.casts = s.casts + 1
-    local life = HL.db.lifetime
+    local life = F.db.lifetime
     life.totals.casts = life.totals.casts + 1
     local zone = zoneNames()
     local z = zoneRecord(zone)
@@ -58,7 +56,7 @@ end
 
 -- items: array of { link = link, count = n }
 function Tracker:RecordCatch(items)
-    local s, life = self.session, HL.db.lifetime
+    local s, life = self.session, F.db.lifetime
     s.catches = s.catches + 1
     life.totals.catches = life.totals.catches + 1
     local zone, sub = zoneNames()
@@ -80,12 +78,12 @@ function Tracker:RecordCatch(items)
             life.items[id] = li
         end
     end
-    HL:Fire("HL_CATCH", items)
+    ST:Fire("ST_CATCH", items)
 end
 
 function Tracker:RecordEscape()
     self.session.escaped = self.session.escaped + 1
-    HL.db.lifetime.totals.escaped = HL.db.lifetime.totals.escaped + 1
+    F.db.lifetime.totals.escaped = F.db.lifetime.totals.escaped + 1
 end
 
 ---------------------------------------------------------------------------
@@ -100,7 +98,7 @@ function Tracker:GetFishingSkill()
         end
     end
     if GetNumSkillLines and GetSkillLineInfo then
-        local fishName = API.FishingSpellName()
+        local fishName = F:SpellName()
         for i = 1, GetNumSkillLines() do
             local name, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
             if not isHeader and name == fishName then return rank, maxRank end
@@ -111,11 +109,11 @@ end
 function Tracker:CheckSkill()
     local rank, maxRank = self:GetFishingSkill()
     if not rank then return end
-    local last = HL.cdb.lastSkill
+    local last = F.cdb.lastSkill
     if last and rank > last then
-        HL:Print("Fishing skill |cff55ff55%d|r/%d (+%d)", rank, maxRank or 0, rank - last)
+        ST:Print("Fishing skill |cff55ff55%d|r/%d (+%d)", rank, maxRank or 0, rank - last)
     end
-    HL.cdb.lastSkill = rank
+    F.cdb.lastSkill = rank
     self.session.skillStart = self.session.skillStart or rank
 end
 
@@ -124,7 +122,7 @@ end
 ---------------------------------------------------------------------------
 function Tracker:IsFishingLootNow()
     if IsFishingLoot then return IsFishingLoot() and true or false end
-    local F = HL.Fishing
+    local F = F.State
     return F.lastStopReason == "ended" and (GetTime() - (F.lastStop or 0)) <= FISHING_LOOT_WINDOW
 end
 
@@ -140,15 +138,15 @@ function Tracker:ReadLoot()
     return items
 end
 
-HL:On("HL_FISHING_START", function() Tracker:RecordCast() end)
-HL:On("HL_FISH_ESCAPED", function() Tracker:RecordEscape() end)
-HL:On("LOOT_OPENED", function()
+ST:On("ST_FISHING_START", function() Tracker:RecordCast() end)
+ST:On("ST_FISH_ESCAPED", function() Tracker:RecordEscape() end)
+ST:On("LOOT_OPENED", function()
     if Tracker:IsFishingLootNow() then
         Tracker:RecordCatch(Tracker:ReadLoot())
     end
 end)
-HL:On("SKILL_LINES_CHANGED", function() Tracker:CheckSkill() end)
-HL:On("PLAYER_ENTERING_WORLD", function() Tracker:CheckSkill() end)
+ST:On("SKILL_LINES_CHANGED", function() Tracker:CheckSkill() end)
+ST:On("PLAYER_ENTERING_WORLD", function() Tracker:CheckSkill() end)
 
 ---------------------------------------------------------------------------
 -- Reporting
@@ -184,35 +182,35 @@ end
 function Tracker:PrintSession()
     local s = self.session
     local rate = s.casts > 0 and (100 * s.catches / s.casts) or 0
-    HL:Print("Session: %d casts, %d catches (%.0f%%), %d got away, %.0f/hr",
+    ST:Print("Session: %d casts, %d catches (%.0f%%), %d got away, %.0f/hr",
         s.casts, s.catches, rate, s.escaped, self:CatchesPerHour())
     local rank, maxRank = self:GetFishingSkill()
     if rank then
-        HL:Print("Skill: %d/%d%s", rank, maxRank or 0,
+        ST:Print("Skill: %d/%d%s", rank, maxRank or 0,
             s.skillStart and rank > s.skillStart and string.format(" (+%d this session)", rank - s.skillStart) or "")
     end
     for i, e in ipairs(sortedItems(s.items)) do
         if i > 10 then break end
-        HL:Print("  %dx %s", e.count, itemLabel(e))
+        ST:Print("  %dx %s", e.count, itemLabel(e))
     end
 end
 
 function Tracker:PrintZone()
     local zone = zoneNames()
-    local z = HL.db.lifetime.zones[zone]
-    if not z or z.catches == 0 then return HL:Print("No catches recorded in %s yet", zone) end
-    HL:Print("%s (lifetime): %d catches from %d casts", zone, z.catches, z.casts)
+    local z = F.db.lifetime.zones[zone]
+    if not z or z.catches == 0 then return ST:Print("No catches recorded in %s yet", zone) end
+    ST:Print("%s (lifetime): %d catches from %d casts", zone, z.catches, z.casts)
     for i, e in ipairs(sortedItems(z.items)) do
         if i > 10 then break end
-        HL:Print("  %dx %s (%.0f%%)", e.count, itemLabel(e), 100 * e.count / z.catches)
+        ST:Print("  %dx %s (%.0f%%)", e.count, itemLabel(e), 100 * e.count / z.catches)
     end
 end
 
-HL:Command("stats", "[reset] - session fishing stats", function(arg)
+F:Command("stats", "[reset] - session fishing stats", function(arg)
     if arg == "reset" then
         Tracker:NewSession()
-        return HL:Print("session reset")
+        return ST:Print("session reset")
     end
     Tracker:PrintSession()
 end)
-HL:Command("zone", "- lifetime catches in this zone", function() Tracker:PrintZone() end)
+F:Command("zone", "- lifetime catches in this zone", function() Tracker:PrintZone() end)

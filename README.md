@@ -1,36 +1,44 @@
-# HookLine
+# Syl's Tools
 
-A low-attention fishing addon for **World of Warcraft: Forever**. HookLine
-doesn't automate anything: every cast and reel-in is a keypress you make.
-Read [DESIGN.md](DESIGN.md) for scope, the Blizzard rules review, and the
+A suite of quality-of-life tools for **World of Warcraft: Forever**. Each tool
+is a module with its own page in the Syl's Tools window. Nothing in it
+automates gameplay: every cast, reel-in and interaction is a keypress you make.
+
+See [DESIGN.md](DESIGN.md) for scope, the Blizzard rules review, and the
 roadmap.
 
-## Features (v0.1)
-- **Fishing HUD**: a large "WATCH THE BOBBER" panel with a cast countdown, and
-  a full-screen flash when your cast expires.
-- **Bobber visibility**: the soft-target icon sits over your bobber.
-- **Splash-sound focus**: while you fish, SFX goes up and music and ambience
-  go down, and sound keeps playing while WoW is in the background. Your
-  settings are restored afterwards.
-- **One-key cast & reel**: the same key casts Fishing, then interacts with the
-  bobber.
-- **Pole swap**: one command swaps your fishing pole in and out.
-- **Tracking**: session and lifetime catches, broken down by zone and item,
-  plus skill-ups.
+## Modules
+
+### Fishing
+- **Fishing HUD**: a large "WATCH THE BOBBER" panel with a cast countdown, a
+  full-screen flash when your cast expires, and an icon over your bobber.
+- **Splash-sound focus**: while you fish, effects go up, music and ambience go
+  down, and sound keeps playing in the background. Your settings are restored
+  afterwards.
+- **One-key cast & reel**: the same key casts, then reels in when you press it
+  on the splash.
+- **Weapon swap**: Syl's Tools remembers your weapons automatically and swaps
+  in your best pole with one click. Once you've stopped fishing for a while
+  (60s by default), it puts your weapons back on its own.
+- **Tracking**: session and lifetime catches by zone and item, catch rate, and
+  skill-ups.
 
 ## Install
-Copy the `HookLine/` folder into `World of Warcraft/_forever_/Interface/AddOns/`.
+Copy the `SylsTools/` folder into `World of Warcraft/_forever_/Interface/AddOns/`.
 The folder name has not been confirmed for every client build. Use the one
 that sits next to your `Wow` executable.
 
-## Commands
+## Usage
+Open the window with **`/syl`**, or from the minimap's addon menu.
+
+Slash commands mirror the window:
 ```
-/hl key F       set the one-key cast & reel key
-/hl mode        force fishing mode on/off (it normally follows your equipped pole)
-/hl gear        swap pole <-> weapons
-/hl stats       session stats            /hl zone   lifetime stats for this zone
-/hl hud | move | scale 1.2 | sound | flash
-/hl probe       developer: log client events during a cast (bite-signal research)
+/syl                          open/close the window
+/syl fishing gear             swap pole <-> weapons
+/syl fishing autorestore 90   re-equip weapons 90s after you stop fishing (or "off")
+/syl fishing key F            one-key cast & reel key
+/syl fishing stats | zone     session / zone stats
+/syl help                     all commands
 ```
 
 ## Development

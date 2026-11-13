@@ -1,4 +1,4 @@
--- HookLine: Alert / HUD
+-- Syl's Tools > Fishing: Alert / HUD
 -- * Large "watch the bobber" HUD with a cast countdown while fishing.
 -- * Full-screen flash (Alert:Flash) for "recast" and, if one is found, a bite signal.
 -- * Splash-sound focus: louder SFX, quieter music, sound in background. Restored after.
@@ -7,12 +7,13 @@
 -- Nothing here performs a game action.
 
 local _, ns = ...
-local HL = (ns and ns.HL) or HookLine
+local ST = (ns and ns.ST) or SylsTools
+local F = ns.Fishing
 
 local Alert = {}
-HL.Alert = Alert
+F.Alert = Alert
 
-local soundStash = HL:NewCVarStash()
+local soundStash = ST:NewCVarStash()
 local restoreToken = 0
 local SOUND_RESTORE_DELAY = 30 -- seconds idle before restoring sound settings
 
@@ -22,15 +23,15 @@ local SOUND_RESTORE_DELAY = 30 -- seconds idle before restoring sound settings
 local hud, bar, title, sub, timeText
 
 local function keyLabel()
-    local key = HL.cdb and HL.cdb.key
-    if key and HL.OneButton and HL.OneButton:IsActive() then return key end
+    local key = F.cdb and F.cdb.key
+    if key and F.OneButton and F.OneButton:IsActive() then return key end
     local bound = GetBindingKey and GetBindingKey("INTERACTTARGET")
     return bound or "Interact"
 end
 
 local function buildHUD()
     if hud then return end
-    hud = CreateFrame("Frame", "HookLineHUD", UIParent)
+    hud = CreateFrame("Frame", "SylsToolsFishingHUD", UIParent)
     hud:SetSize(420, 96)
     hud:SetFrameStrata("HIGH")
     hud:SetClampedToScreen(true)
@@ -41,7 +42,7 @@ local function buildHUD()
     hud:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         local point, _, relPoint, x, y = self:GetPoint()
-        HL.db.alert.point = { point, "UIParent", relPoint, x, y }
+        F.db.alert.point = { point, "UIParent", relPoint, x, y }
     end)
 
     local bg = hud:CreateTexture(nil, "BACKGROUND")
@@ -71,7 +72,7 @@ local function buildHUD()
     timeText:SetPoint("CENTER")
 
     hud:SetScript("OnUpdate", function()
-        local F = HL.Fishing
+        local F = F.State
         local dur = F:Duration()
         local rem = F:Remaining()
         bar:SetValue(dur > 0 and rem / dur or 0)
@@ -82,14 +83,14 @@ end
 
 function Alert:ApplyPosition()
     if not hud then return end
-    local p = HL.db.alert.point
+    local p = F.db.alert.point
     hud:ClearAllPoints()
     hud:SetPoint(p[1], UIParent, p[3], p[4], p[5])
-    hud:SetScale(HL.db.alert.scale or 1)
+    hud:SetScale(F.db.alert.scale or 1)
 end
 
 function Alert:ShowHUD()
-    if not HL.db.alert.enabled then return end
+    if not F.db.alert.enabled then return end
     buildHUD()
     self:ApplyPosition()
     sub:SetFormattedText("Press |cffffd100%s|r when it splashes", keyLabel())
@@ -106,12 +107,12 @@ function Alert:ToggleUnlock()
     hud:EnableMouse(self.unlocked)
     if self.unlocked then
         self:ApplyPosition()
-        sub:SetText("Drag me, then /hl move again")
+        sub:SetText("Drag me, then /syl fishing move again")
         hud:Show()
     else
         hud:Hide()
     end
-    HL:Print("HUD %s", self.unlocked and "unlocked" or "locked")
+    ST:Print("HUD %s", self.unlocked and "unlocked" or "locked")
 end
 
 ---------------------------------------------------------------------------
@@ -122,7 +123,7 @@ local FLASH_TIME = 1.2
 
 function Alert:Flash(text, r, g, b)
     if not flash then
-        flash = CreateFrame("Frame", "HookLineFlash", UIParent)
+        flash = CreateFrame("Frame", "SylsToolsFlash", UIParent)
         flash:SetAllPoints(UIParent)
         flash:SetFrameStrata("FULLSCREEN_DIALOG")
         flash:EnableMouse(false)
@@ -156,7 +157,7 @@ end
 -- Sound focus
 ---------------------------------------------------------------------------
 function Alert:FocusSound()
-    local s = HL.db.sound
+    local s = F.db.sound
     if not s.focus then return end
     restoreToken = restoreToken + 1
     soundStash:Set("Sound_EnableAllSound", 1)
@@ -178,7 +179,7 @@ local function scheduleSoundRestore()
     local token = restoreToken
     if C_Timer and C_Timer.After then
         C_Timer.After(SOUND_RESTORE_DELAY, function()
-            if token == restoreToken and not HL.Fishing:IsFishing() then
+            if token == restoreToken and not F.State:IsFishing() then
                 Alert:RestoreSound()
             end
         end)
@@ -211,20 +212,20 @@ local function argString(...)
 end
 
 local function probeStart()
-    if not HL.db.probe then return end
+    if not F.db.probe then return end
     if not probe then
         probe = CreateFrame("Frame")
         probe:SetScript("OnEvent", function(self, event, ...)
             if PROBE_IGNORE[event] then return end
-            local t = GetTime() - (HL.Fishing.startTime or GetTime())
+            local t = GetTime() - (F.State.startTime or GetTime())
             local line = string.format("+%.2fs %s (%s)", t, event, argString(...))
-            table.insert(HL.db.probeLog, line)
-            if #HL.db.probeLog > 2000 then table.remove(HL.db.probeLog, 1) end
-            HL:Print("|cff999999probe|r %s", line)
+            table.insert(F.db.probeLog, line)
+            if #F.db.probeLog > 2000 then table.remove(F.db.probeLog, 1) end
+            ST:Print("|cff999999probe|r %s", line)
         end)
     end
-    HL.db.probeLog = HL.db.probeLog or {}
-    table.insert(HL.db.probeLog, "---- cast at " .. date("%H:%M:%S") .. " ----")
+    F.db.probeLog = F.db.probeLog or {}
+    table.insert(F.db.probeLog, "---- cast at " .. date("%H:%M:%S") .. " ----")
     probe:RegisterAllEvents()
 end
 
@@ -235,56 +236,56 @@ end
 ---------------------------------------------------------------------------
 -- Wiring
 ---------------------------------------------------------------------------
-HL:On("HL_FISHING_START", function()
+ST:On("ST_FISHING_START", function()
     Alert:ShowHUD()
     Alert:FocusSound()
     probeStart()
 end)
 
-HL:On("HL_FISHING_STOP", function(_, reason)
+ST:On("ST_FISHING_STOP", function(_, reason)
     Alert:HideHUD()
     probeStop()
-    if reason == "expired" and HL.db.alert.flashOnExpire then
+    if reason == "expired" and F.db.alert.flashOnExpire then
         Alert:Flash("Recast!", 1.0, 0.8, 0.2)
     end
     scheduleSoundRestore()
 end)
 
-HL:On("HL_FISH_ESCAPED", function()
+ST:On("ST_FISH_ESCAPED", function()
     Alert:Flash("Got away...", 1.0, 0.3, 0.3)
 end)
 
-HL:On("PLAYER_LOGOUT", function()
+ST:On("PLAYER_LOGOUT", function()
     -- never leave a player's sound settings modified
     Alert:RestoreSound()
 end)
 
-HL:Command("hud", "- toggle the fishing HUD", function()
-    HL:ToggleSetting(HL.db.alert, "enabled", "Fishing HUD")
+F:Command("hud", "- toggle the fishing HUD", function()
+    ST:ToggleSetting(F.db.alert, "enabled", "Fishing HUD")
 end)
-HL:Command("move", "- unlock/lock the HUD to drag it", function()
+F:Command("move", "- unlock/lock the HUD to drag it", function()
     Alert:ToggleUnlock()
 end)
-HL:Command("scale", "<0.5-2> - HUD scale", function(arg)
+F:Command("scale", "<0.5-2> - HUD scale", function(arg)
     local n = tonumber(arg)
-    if not n or n < 0.5 or n > 2 then return HL:Print("usage: /hl scale 1.2") end
-    HL.db.alert.scale = n
+    if not n or n < 0.5 or n > 2 then return ST:Print("usage: /hl scale 1.2") end
+    F.db.alert.scale = n
     Alert:ApplyPosition()
-    HL:Print("HUD scale %.2f", n)
+    ST:Print("HUD scale %.2f", n)
 end)
-HL:Command("sound", "- toggle splash-sound focus while fishing", function()
-    if not HL:ToggleSetting(HL.db.sound, "focus", "Sound focus") then Alert:RestoreSound() end
+F:Command("sound", "- toggle splash-sound focus while fishing", function()
+    if not ST:ToggleSetting(F.db.sound, "focus", "Sound focus") then Alert:RestoreSound() end
 end)
-HL:Command("flash", "- preview the full-screen alert", function()
+F:Command("flash", "- preview the full-screen alert", function()
     Alert:Bite()
 end)
-HL:Command("probe", "[clear] - toggle the bite event probe (developer tool)", function(arg)
+F:Command("probe", "[clear] - toggle the bite event probe (developer tool)", function(arg)
     if arg == "clear" then
-        HL.db.probeLog = {}
-        return HL:Print("probe log cleared")
+        F.db.probeLog = {}
+        return ST:Print("probe log cleared")
     end
-    HL:ToggleSetting(HL.db, "probe", "Event probe")
-    if HL.db.probe then
-        HL:Print("Cast, watch for the splash, and note the +time of any event near it. Log saved in HookLineDB.probeLog.")
+    ST:ToggleSetting(F.db, "probe", "Event probe")
+    if F.db.probe then
+        ST:Print("Cast, watch for the splash, and note the +time of any event near it. Log saved in SylsToolsDB.modules.fishing.probeLog.")
     end
 end)

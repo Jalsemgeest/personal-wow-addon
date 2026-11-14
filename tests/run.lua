@@ -139,7 +139,7 @@ function GetTrainerServiceTypeFilter(f) return W.trainerFilters[f] end
 function SetTrainerServiceTypeFilter(f, v) W.trainerFilters[f] = (v == 1) and 1 or nil end
 function IsTradeskillTrainer() return W.tradeskillTrainer end
 function GetNumTalentTabs() return 3 end
-function GetTalentTabInfo(t) return "Tree" .. t, "icon", W.talentPoints[t] end
+function GetTalentTabInfo() error("guides must not read talents") end
 function time() return 1700000000 end
 DEFAULT_CHAT_FRAME = { AddMessage = function(_, msg) table.insert(W.chat, msg) end }
 ERR_FISH_ESCAPED = "Your fish got away!"
@@ -698,7 +698,7 @@ test("upcoming: window page builds", function()
 end)
 
 -- Class guides --------------------------------------------------------------
-test("guides: suggests tank from talent points, abilities reflect spellbook", function()
+test("guides: default to the first role, abilities reflect spellbook only", function()
     eq(Guides:Current().key, "tank")
     local rows = Guides:BuildRows(Guides:Current())
     local byName = {}

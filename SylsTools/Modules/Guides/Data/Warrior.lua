@@ -12,7 +12,7 @@ local CREDIT = "Guide written for classic-style Warrior mechanics. Spot somethin
 ---------------------------------------------------------------------------
 G:Register({
     class = "WARRIOR", key = "tank", title = "Tank", subtitle = "Protection",
-    role = "TANK", talentTab = 3,
+    role = "TANK",
     intro = "As the tank, your job is to make every enemy attack |cffffffffyou|r instead of your group, and to survive it. "
         .. "Enemies attack whoever has the most |cffffd100threat|r, and you build threat by hitting them with the right abilities. "
         .. "Warriors use |cffffd100rage|r instead of mana: you gain it by dealing and taking damage, so it's normal to start a fight "
@@ -110,7 +110,7 @@ G:Register({
 ---------------------------------------------------------------------------
 G:Register({
     class = "WARRIOR", key = "dps", title = "Damage & Levelling", subtitle = "Arms / Fury",
-    role = "DAMAGE", talentTab = { 1, 2 },
+    role = "DAMAGE",
     intro = "Your goal is to deal as much damage as possible without pulling too many enemies at once. "
         .. "Warriors use |cffffd100rage|r: you gain it by hitting and getting hit, so fight one enemy at a time "
         .. "and use your rage as it builds. Most warriors level in |cffffffffBattle Stance|r with a two-handed weapon.",

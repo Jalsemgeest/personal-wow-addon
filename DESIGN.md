@@ -300,8 +300,7 @@ tests/
   (Warrior first), and the Key Bindings menu entry for fishing. *(current)*
 - v0.3.x: guides for the remaining classes, and wiring the bite signal if the
   probe finds one.
-- v0.4: an optional in-combat "next ability" hint for guides (see §9.4), a
-  lure button, a fishing outfit, and a minimap button.
+- v0.4: a lure button, a fishing outfit, and a minimap button.
 - v1.0: localisation, CurseForge/Wago release.
 
 ## 8. Upcoming Spells module
@@ -371,9 +370,8 @@ Guides are data files (`Modules/Guides/Data/<Class>.lua`), one per role:
   Spells trainer data when available, otherwise from a hint in the guide.
   Talents are labelled "talent".
 - "Only show abilities I have" collapses the guide to what you can press today.
-- The role is auto-suggested from the talent tree with the most points (when
-  the client exposes talent trees). The player can pick a role, and that
-  choice is saved per character.
+- The player picks the role they want to read about. The choice is saved per
+  character, and the first guide is the default.
 - Matching is by spell **name**, so ranks don't matter, and a spell ID that
   differs on Forever still works through the fallback name.
 
@@ -386,10 +384,14 @@ Guides are data files (`Modules/Guides/Data/<Class>.lua`), one per role:
 - The content describes classic-style mechanics. Abilities WoW Forever changes
   need their text updated.
 
-### 9.4 Rules note
-Guides are **reference text**. A possible later addition is an optional
-out-of-the-way "suggested next ability" highlight while in combat. Note that
-Midnight-era clients restrict addon access to combat data in some contexts,
-and Blizzard has signalled it doesn't want addons to "solve" rotations. Any
-in-combat helper must stay a passive hint, never press anything, and be
-re-checked against the policy before shipping.
+### 9.4 Scope: text only (permanent)
+Guides are **reference text you read**, like a beginner's guide that knows
+which abilities are in your spellbook. The only character information they
+use:
+- which abilities you have (the spellbook scanner), and
+- the trainer level for abilities you don't have yet (Upcoming Spells data).
+
+They never read talents, combat state, targets, cooldowns, rage or auras.
+They show nothing during combat, and there is no "press this next"
+highlighting. This keeps them far from rotation automation, and unaffected by
+the client's combat-data restrictions.

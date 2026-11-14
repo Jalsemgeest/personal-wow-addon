@@ -58,7 +58,7 @@ function Panel:Refresh()
 end
 
 for _, e in ipairs({ "ST_GUIDE_CHANGED", "ST_SETTINGS_CHANGED", "SPELLS_CHANGED", "PLAYER_LEVEL_UP",
-                     "ST_SPELLS_UPDATED", "CHARACTER_POINTS_CHANGED" }) do
+                     "ST_SPELLS_UPDATED" }) do
     ST:On(e, function()
         if Panel.page and Panel.page:IsShown() then Panel:Refresh() end
     end)

@@ -1,12 +1,16 @@
 -- Syl's Tools > Class Guides
--- Beginner-friendly "how do I play this role?" guides that adapt to the
--- abilities you actually have. Abilities you know are shown in full colour;
+-- Beginner-friendly "how do I play this role?" guides: reference text only.
+-- The only thing they read about your character is which abilities you have
+-- (your spellbook, plus trainer levels for ones you don't have yet). They
+-- don't look at talents, combat, targets or cooldowns, and never suggest
+-- buttons in real time. You pick the role you want to read about.
+-- Abilities you have Abilities you know are shown in full colour;
 -- ones you haven't learned yet are greyed out with the level they unlock at.
 --
 -- Guides are plain data files in Modules/Guides/Data/<Class>.lua:
 --   G:Register({
 --     class = "WARRIOR", key = "tank", title = "Tank", subtitle = "Protection",
---     role = "TANK", talentTab = 3,
+--     role = "TANK",
 --     intro = "What this role is about...",
 --     sections = {
 --       { title = "Pulling", intro = "optional text", entries = {
@@ -50,33 +54,10 @@ function G:GuidesFor(classFile)
     return self.byClass[classFile or self:PlayerClass()] or {}
 end
 
--- Pick the guide matching the talent tree with the most points, if the
--- client exposes talent trees; otherwise the player's saved choice / first.
-function G:SuggestedKey()
-    local guides = self:GuidesFor()
-    if not GetTalentTabInfo or not GetNumTalentTabs then return end
-    local bestTab, bestPoints = nil, 0
-    for t = 1, GetNumTalentTabs() do
-        -- Classic Era: name, icon, pointsSpent, ...   Wrath-style: id, name, desc, icon, pointsSpent, ...
-        local a, _, c, _, e = GetTalentTabInfo(t)
-        local points
-        if type(a) == "string" and type(c) == "number" then points = c
-        elseif type(e) == "number" then points = e end
-        if points and points > bestPoints then bestTab, bestPoints = t, points end
-    end
-    if not bestTab then return end
-    for _, g in ipairs(guides) do
-        local tabs = type(g.talentTab) == "table" and g.talentTab or { g.talentTab }
-        for _, t in ipairs(tabs) do
-            if t == bestTab then return g.key end
-        end
-    end
-end
-
 function G:Current()
     local guides = self:GuidesFor()
     if #guides == 0 then return nil end
-    local want = self.cdb.choice or self:SuggestedKey()
+    local want = self.cdb.choice
     for _, g in ipairs(guides) do
         if g.key == want then return g end
     end

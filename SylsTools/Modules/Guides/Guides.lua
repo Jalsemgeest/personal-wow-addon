@@ -4,7 +4,7 @@
 -- (your spellbook, plus trainer levels for ones you don't have yet). They
 -- don't look at talents, combat, targets or cooldowns, and never suggest
 -- buttons in real time. You pick the role you want to read about.
--- Abilities you have Abilities you know are shown in full colour;
+-- Abilities you know are shown in full colour;
 -- ones you haven't learned yet are greyed out with the level they unlock at.
 --
 -- Guides are plain data files in Modules/Guides/Data/<Class>.lua:

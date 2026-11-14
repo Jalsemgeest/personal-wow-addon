@@ -743,6 +743,68 @@ test("guides: window page builds with role buttons", function()
     assert(#P.list.rows > 10)
 end)
 
+-- Controller support ---------------------------------------------------------
+test("controller: key capture accepts gamepad buttons", function()
+    ST.UI:Show("fishing")
+    local kb = F.Panel.keyButton
+    kb:Click()
+    eq(kb.capturing, true)
+    kb:GetScript("OnGamePadButtonDown")(kb, "PADDDOWN")
+    eq(F.cdb.key, "PADDDOWN")
+    eq(kb.capturing, false)
+end)
+
+test("controller: native Settings page registers rows incl. keybinding", function()
+    local made = { checkbox = 0, slider = 0, init = 0, keybind = 0 }
+    local cat = { GetID = function() return 42 end }
+    local layout = { AddInitializer = function() made.init = made.init + 1 end }
+    Settings = {
+        VarType = { Boolean = "boolean", Number = "number" },
+        RegisterVerticalLayoutCategory = function(name) eq(name, "Syl's Tools"); return cat, layout end,
+        RegisterProxySetting = function(_, var, _, _, default, get, set)
+            return { var = var, get = get, set = set }
+        end,
+        CreateCheckbox = function(_, setting) made.checkbox = made.checkbox + 1; made[setting.var] = setting end,
+        CreateSliderOptions = function() return {} end,
+        CreateSlider = function(_, setting) made.slider = made.slider + 1; made[setting.var] = setting end,
+        RegisterAddOnCategory = function(c) made.registered = c end,
+        OpenToCategory = function(id) made.opened = id end,
+    }
+    CreateSettingsListSectionHeaderInitializer = function() return {} end
+    CreateSettingsButtonInitializer = function() return {} end
+    C_KeyBindings = { GetBindingIndex = function(a)
+        eq(a, "CLICK SylsToolsFishingCastButton:LeftButton"); return 7 end }
+    CreateKeybindingEntryInitializer = function(i) eq(i, 7); made.keybind = made.keybind + 1; return {} end
+    ST.SettingsPage:Build()
+    eq(made.registered, cat)
+    eq(made.keybind, 1)
+    assert(made.checkbox >= 8, "checkboxes: " .. made.checkbox)
+    eq(made.slider, 1)
+    eq(ST.SettingsPage.failed, 0)
+    -- proxy settings write through to module settings
+    made.SylsTools_fishing_hud.set(false)
+    eq(F.db.alert.enabled, false)
+    made.SylsTools_fishing_hud.set(true)
+    made.SylsTools_fishing_delay.set(120)
+    eq(F.cdb.restoreDelay, 120)
+    F.Gear:SetDelay(60)
+    -- addon menu opens Settings when the controller UI is on
+    InputUtil = { IsGamepadUIEnabled = function() return true end }
+    ST.UI:Hide()
+    SylsTools_OnAddonCompartmentClick()
+    eq(made.opened, 42)
+    eq(ST.UI:IsShown(), false)
+    InputUtil = nil
+    SylsTools_OnAddonCompartmentClick()
+    eq(ST.UI:IsShown(), true)
+end)
+
+test("controller: settings page survives missing APIs", function()
+    Settings = nil
+    local ok = pcall(function() ST.SettingsPage:Build() end)
+    assert(ok)
+end)
+
 test("no handler errors were printed", function()
     for _, msg in ipairs(W.chat) do
         assert(not msg:find("error in"), msg)

@@ -23,10 +23,13 @@ local SOUND_RESTORE_DELAY = 30 -- seconds idle before restoring sound settings
 local hud, bar, title, sub, timeText
 
 local function keyLabel()
+    local API = ST.API
     local key = F.cdb and F.cdb.key
-    if key and F.OneButton and F.OneButton:IsActive() then return key end
+    if key and F.OneButton and F.OneButton:IsActive() then return API.KeyText(key) end
+    local gameKey = F.OneButton and F.OneButton:GameKeys()[1]
+    if gameKey then return API.KeyText(gameKey) end
     local bound = GetBindingKey and GetBindingKey("INTERACTTARGET")
-    return bound or "Interact"
+    return API.KeyText(bound) or "Interact"
 end
 
 local function buildHUD()

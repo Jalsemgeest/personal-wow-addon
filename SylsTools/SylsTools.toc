@@ -2,7 +2,7 @@
 ## Title: Syl's Tools
 ## Notes: Quality-of-life suite: fishing helper, upcoming spells in your spellbook, and beginner class guides. No automation.
 ## Author: Syl
-## Version: 0.3.0
+## Version: 0.3.1
 ## SavedVariables: SylsToolsDB
 ## SavedVariablesPerCharacter: SylsToolsCharDB
 ## IconTexture: Interface\Icons\INV_Misc_Gear_01
@@ -12,6 +12,7 @@ Core.lua
 Spellbook.lua
 UI\Widgets.lua
 UI\MainFrame.lua
+UI\Settings.lua
 
 Modules\Fishing\Fishing.lua
 Modules\Fishing\State.lua

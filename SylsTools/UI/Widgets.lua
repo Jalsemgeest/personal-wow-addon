@@ -120,17 +120,19 @@ function W.ItemSlot(parent, size, caption, emptyIcon)
     return b
 end
 
--- Click, then press a key (or mouse button 3-5) to bind. Esc cancels.
+-- Click, then press a key, mouse button 3-5, or controller button to bind. Esc cancels.
 local MODIFIERS = { LSHIFT = 1, RSHIFT = 1, LCTRL = 1, RCTRL = 1, LALT = 1, RALT = 1, UNKNOWN = 1 }
 function W.KeyBind(parent, width, get, set)
     local b = W.Button(parent, "", width or 120, function() end)
     b:RegisterForClicks("AnyUp")
     local function label()
-        b:SetText(b.capturing and "|cffffd100Press a key...|r" or ("Key: " .. (get() or "|cff888888not set|r")))
+        b:SetText(b.capturing and "|cffffd100Press a key or button...|r"
+            or ("Key: " .. (API.KeyText(get()) or "|cff888888not set|r")))
     end
     local function stop()
         b.capturing = false
         b:EnableKeyboard(false)
+        if b.EnableGamePadButton then b:EnableGamePadButton(false) end
         label()
     end
     local function finish(key)
@@ -147,7 +149,14 @@ function W.KeyBind(parent, width, get, set)
         self.capturing = true
         self:EnableKeyboard(true)
         if self.SetPropagateKeyboardInput then self:SetPropagateKeyboardInput(false) end
+        -- Controller buttons arrive as PAD1, PADDDOWN, PADLTRIGGER, ... and are
+        -- bindable exactly like keyboard keys.
+        if self.EnableGamePadButton then self:EnableGamePadButton(true) end
         label()
+    end)
+    b:SetScript("OnGamePadButtonDown", function(self, button)
+        if not self.capturing then return end
+        finish(button)
     end)
     b:SetScript("OnKeyDown", function(self, key)
         if not self.capturing or MODIFIERS[key] then return end

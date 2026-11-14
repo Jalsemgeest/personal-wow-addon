@@ -12,7 +12,7 @@ _G.SylsTools = ST -- exposed for /run debugging
 
 ST.name = ADDON_NAME or "SylsTools"
 ST.title = "Syl's Tools"
-ST.version = "0.3.0"
+ST.version = "0.3.1"
 
 local function deepDefaults(dst, src)
     for k, v in pairs(src) do
@@ -178,6 +178,26 @@ function API.InCombat()
     return InCombatLockdown and InCombatLockdown() or false
 end
 
+-- True while the player is using Blizzard's controller interface (WoW Forever Gamepad UI).
+function API.IsGamepadUI()
+    if InputUtil and InputUtil.IsGamepadUIEnabled then
+        local ok, on = pcall(InputUtil.IsGamepadUIEnabled)
+        if ok then return on and true or false end
+    end
+    return GetCVar and GetCVar("GamePadEnable") == "1" and GetCVar("InputDeviceInterfaceStyle") == "1" or false
+end
+
+-- Display text for a binding key. Gamepad keys (PAD1, PADDDOWN, ...) come back
+-- from the client as controller button glyphs where supported.
+function API.KeyText(key)
+    if not key then return nil end
+    if GetBindingText then
+        local ok, text = pcall(GetBindingText, key)
+        if ok and type(text) == "string" and text ~= "" then return text end
+    end
+    return key
+end
+
 function API.IsSecret(v)
     return issecretvalue and issecretvalue(v) or false
 end
@@ -278,7 +298,12 @@ BINDING_HEADER_SYLSTOOLS = "Syl's Tools"
 _G["BINDING_NAME_CLICK SylsToolsFishingCastButton:LeftButton"] = "Fishing: Cast / Reel"
 
 -- Minimap "addon compartment" entry (modern client).
-function SylsTools_OnAddonCompartmentClick() ST:Toggle() end
+-- With the controller interface on, our custom window can't be reached by the
+-- gamepad cursor, so open our native Settings page instead.
+function SylsTools_OnAddonCompartmentClick()
+    if API.IsGamepadUI() and ST.SettingsPage and ST.SettingsPage:Open() then return end
+    ST:Toggle()
+end
 
 function ST:ToggleSetting(tbl, key, label)
     tbl[key] = not tbl[key]

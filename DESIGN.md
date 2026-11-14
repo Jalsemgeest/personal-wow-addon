@@ -297,7 +297,9 @@ tests/
 - v0.2: Syl's Tools suite structure, the main window and Fishing page,
   automatic weapon tracking, and auto re-equip.
 - v0.3: the Upcoming Spells module (spellbook tab), the Class Guides module
-  (Warrior first), and the Key Bindings menu entry for fishing. *(current)*
+  (Warrior first), and the Key Bindings menu entry for fishing.
+- v0.3.1: controller groundwork: a native Settings page, binding controller
+  buttons, and controller button names in the HUD (§10). *(current)*
 - v0.3.x: guides for the remaining classes, and wiring the bite signal if the
   probe finds one.
 - v0.4: a lure button, a fishing outfit, and a minimap button.
@@ -395,3 +397,80 @@ They never read talents, combat state, targets, cooldowns, rage or auras.
 They show nothing during combat, and there is no "press this next"
 highlighting. This keeps them far from rotation automation, and unaffected by
 the client's combat-data restrictions.
+
+## 10. Controller support (WoW Forever Gamepad UI)
+
+### 10.1 Research findings (Nov 2026)
+- **Native support is a beta.** WoW Forever launched with a native controller
+  interface ("Gamepad UI") that Blizzard calls a *functional beta*. According
+  to third-party guides that quote Blizzard's posts, the Nov 2 patch notes
+  mention improving "Gamepad UI compatibility with user-created add-ons".
+  Turning it on: `GamePadEnable 1` and `InputDeviceInterfaceStyle 1`. Addons
+  can detect it with `InputUtil.IsGamepadUIEnabled()`.
+- **The controller cursor only reaches what the client builds.** Custom addon
+  frames aren't part of its navigation:
+  - Bag replacements like BetterBags can't be navigated. Its maintainer said:
+    "Blizzard does not allow add-ons to hook into their new UI. When they add
+    this, BetterBags will support it."
+  - Baganator needs a separate "Baganator Gamepad" bridge addon.
+  - This is almost certainly why **Bagnon's bags won't open on controller**:
+    the controller's bag action targets Blizzard's bag frames, which Bagnon
+    replaces with frames the controller UI doesn't know about. This is an
+    inference, not confirmed.
+- **Settings pages are the exception.** Pages registered in Blizzard's Options
+  panel with the *vertical layout* (`Settings.RegisterVerticalLayoutCategory`,
+  proxy settings, checkboxes, sliders and initializers) are reachable by the
+  controller cursor. *Canvas* pages (a custom frame inside Settings) are not:
+  the cursor lands on an invisible row. Confirmed in a merged fix in another
+  Forever addon (legacy-forever, PR #335).
+- **Low-level API.** Since 9.0 the client has had `C_GamePad`, and any frame
+  can take controller input directly with `Frame:EnableGamePadButton(true)`
+  and `OnGamePadButtonDown`. Only the top-most frame with controller input
+  enabled receives it. Controller buttons bind like keys (`PAD1`, `PADDDOWN`,
+  `PADLTRIGGER`, ...).
+- **The ecosystem already exists:** ConsolePort (with an interim Forever
+  version), Controller Forever, Gamepad Suite, Improved Forever (radial
+  wheels, vibration, controller auction house), Controller Companion, and
+  WorldController. Some need Blizzard's Gamepad UI **on** (Controller
+  Forever) and others need it **off** (WorldController), so they don't all mix.
+
+### 10.2 What it means for Syl's Tools
+Our window is a custom frame, so **controller players can't use it** while
+the Gamepad UI is on. The same goes for the spellbook tab and side panel.
+
+### 10.3 Done (v0.3.1)
+- **Native Settings page** (`UI/Settings.lua`) under Options > AddOns >
+  Syl's Tools, built with the vertical layout so the controller cursor can
+  reach it. It has every setting a controller player needs, plus a native
+  **keybinding row for Fishing: Cast / Reel**, so a pad button can be bound
+  there. Each row is pcall-guarded, and missing APIs just skip that row.
+- **Controller buttons in the key picker.** The Fishing page's key button
+  accepts controller buttons (`OnGamePadButtonDown`) as well as keys.
+- **Controller button names in the HUD.** The HUD and key labels use
+  `GetBindingText`, which shows controller button glyphs where the client
+  supports them.
+- **The minimap addon menu** opens the Settings page instead of the window
+  while the Gamepad UI is on.
+- Fishing is a natural fit for controller play: one button casts and reels,
+  and the weapon swap happens on its own.
+
+### 10.4 Next ideas (need in-game testing first)
+1. **Our own controller navigation in the Syl's Tools window.** While it's
+   open, the window takes controller input itself (`EnableGamePadButton`):
+   d-pad to move between controls, A to press, B to close, and the bumpers to
+   switch modules. Only the top-most frame with controller input enabled gets
+   buttons, so this must be switched off when the window closes. It's worth
+   checking how it interacts with the Gamepad UI cursor.
+2. **Controller-friendly Class Guides.** A reading mode you can scroll with the
+   stick, and the guide text in the native Settings page.
+3. **Rumble cues** (`C_GamePad.SetVibration`) for "cast expired, recast" and
+   "weapons re-equipped". This gives a cue that needs neither sound nor a
+   glance at the screen.
+4. **Controller addon profile.** Detect switching between controller and
+   keyboard & mouse, and offer to swap incompatible addons, such as disabling
+   Bagnon and using the default bags while on controller. This uses
+   `C_AddOns.DisableAddOn`/`EnableAddOn` plus a reload prompt that the player
+   confirms. It doesn't fix Bagnon, but it removes the "my bags won't open"
+   trap.
+5. **Compatibility notes.** Test alongside ConsolePort and Controller Forever
+   and document conflicts.

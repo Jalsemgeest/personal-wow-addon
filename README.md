@@ -44,6 +44,13 @@ Copy the `SylsTools/` folder into `World of Warcraft/_forever_/Interface/AddOns/
 The folder name has not been confirmed for every client build. Use the one
 that sits next to your `Wow` executable.
 
+## Controller players
+WoW Forever's controller interface can't reach addon windows. Use
+**Options > AddOns > Syl's Tools** instead: it has every setting, plus a
+keybinding row where you can bind a controller button to *Fishing: Cast /
+Reel*. The minimap addon menu takes you there automatically while you're in
+controller mode.
+
 ## Usage
 Open the window with **`/syl`**, or from the minimap's addon menu.
 
